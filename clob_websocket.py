@@ -36,7 +36,7 @@ class PolymarketMonitor:
             return f"{config.POLYMARKET_BASE_URL}/market/{market_slug}"
         return config.POLYMARKET_BASE_URL
 
-    def should_alert(self, market_slug, cooldown_minutes=3): # Reduzi para 3 min para pegar reversões
+    def should_alert(self, market_slug, cooldown_minutes=3):
         agora = time.time()
         ultimo_alerta = self.last_alert_time.get(market_slug, 0)
         if agora - ultimo_alerta < (cooldown_minutes * 60):
@@ -106,7 +106,6 @@ class PolymarketMonitor:
         if not changes and "price" in data and "asset_id" in data:
             changes = [data]
 
-        # Atualiza o threshold no tracker
         self.tracker.threshold = config.PRICE_SPIKE_THRESHOLD
 
         for change in changes:
@@ -127,25 +126,14 @@ class PolymarketMonitor:
                 continue
 
             link = self.gerar_link(market)
-
-            # Formata o alerta de acordo com o que foi detectado
-            if event_type == "SPIKE":
-                seta = "📈 Subiu" if pct > 0 else "📉 Caiu"
-                titulo = "⚡ *Movimentação de Preço (EMA)*"
-                detalhes = f"{seta} *{(abs(pct)):.1%}* em relação à média recente!"
-            elif event_type == "REVERSAL_DOWN":
-                titulo = "🚨 *Alerta de Armadilha (Reversão)*"
-                detalhes = f"📉 O preço atingiu o topo de {old_price:.4f} e caiu forte para {new_price:.4f} ({pct:.1%})."
-            elif event_type == "REVERSAL_UP":
-                titulo = "🚨 *Alerta de Armadilha (Reversão)*"
-                detalhes = f"📈 O preço tocou o fundo de {old_price:.4f} e disparou para {new_price:.4f} ({pct:+.1%})."
+            seta = "📈 Subiu" if pct > 0 else "📉 Caiu"
             
             msg = (
-                f"{titulo}\n\n"
+                f"⚡ *Movimentação de Preço*\n\n"
                 f"🏆 *Esporte/Mercado:* {market['question']}\n"
                 f"🎯 *Palpite:* `{outcome_name}`\n"
-                f"{detalhes}\n"
-                f"💰 *Preço Atual:* {new_price:.4f}\n\n"
+                f"{seta} *{(abs(pct)):.1%}* em relação à média recente!\n"
+                f"💰 *Preço:* {old_price:.4f} ➔ {new_price:.4f}\n\n"
                 f"[👉 Clique aqui para ver na Polymarket]({link})"
             )
             await send_alert(msg)
