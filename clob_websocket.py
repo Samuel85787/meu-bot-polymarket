@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 import websockets
-import config  # <--- Mudança aqui: importa o arquivo inteiro
+import config
 from telegram_notifier import send_alert
 from price_tracker import PriceTracker
 
@@ -21,10 +21,26 @@ class PolymarketMonitor:
                 self.token_to_outcome[token_id] = outcome_name
         
         self.tracker = PriceTracker(
-            threshold=config.PRICE_SPIKE_THRESHOLD, # Lê do config
+            threshold=config.PRICE_SPIKE_THRESHOLD,
             window=config.PRICE_SPIKE_WINDOW,
         )
         self.last_alert_time = {}
+
+    def gerar_link(self, market):
+        """Cria o link correto. Tenta o Evento, se não tiver, tenta o Mercado."""
+        # Tenta pegar o slug do evento principal (onde as apostas de um jogo ficam agrupadas)
+        if "events" in market and len(market["events"]) > 0:
+            event_slug = market["events"][0].get("slug")
+            if event_slug:
+                return f"{config.POLYMARKET_BASE_URL}/event/{event_slug}"
+        
+        # Se não achar o evento, tenta o link direto do mercado (para mercados únicos)
+        market_slug = market.get("slug")
+        if market_slug:
+            return f"{config.POLYMARKET_BASE_URL}/market/{market_slug}"
+            
+        # Se tudo falhar, manda para a home
+        return config.POLYMARKET_BASE_URL
 
     def should_alert(self, market_slug, cooldown_minutes=5):
         agora = time.time()
@@ -66,7 +82,6 @@ class PolymarketMonitor:
         price = float(data.get("price", 0) or 0)
         usd_value = size * price
         
-        # Lê o valor atualizado do config
         if usd_value < config.MIN_BET_AMOUNT:
             return
 
@@ -82,6 +97,7 @@ class PolymarketMonitor:
 
         side_raw = data.get("side", "?")
         side_texto = "Compra (Aposta a Favor)" if side_raw == "BUY" else "Venda (Aposta Contra)"
+        link = self.gerar_link(market)
         
         msg = (
             f"🐋 *Aposta Grande Detectada*\n\n"
@@ -90,7 +106,7 @@ class PolymarketMonitor:
             f"🔄 *Ação:* {side_texto}\n"
             f"💵 *Valor:* ${usd_value:,.2f}\n"
             f"📊 *Preço Atual:* {price:.4f}\n\n"
-            f"[👉 Clique aqui para ver na Polymarket]({config.POLYMARKET_BASE_URL}/event/{market['slug']})"
+            f"[👉 Clique aqui para ver na Polymarket]({link})"
         )
         await send_alert(msg)
 
@@ -99,7 +115,6 @@ class PolymarketMonitor:
         if not changes and "price" in data and "asset_id" in data:
             changes = [data]
 
-        # Atualiza o threshold do tracker em tempo real
         self.tracker.threshold = config.PRICE_SPIKE_THRESHOLD
 
         for change in changes:
@@ -118,6 +133,7 @@ class PolymarketMonitor:
                     
                 old_price, pct = spike
                 seta = "📈 Subiu" if pct > 0 else "📉 Caiu"
+                link = self.gerar_link(market)
                 
                 msg = (
                     f"⚡ *Movimentação Brusca de Preço*\n\n"
@@ -125,6 +141,6 @@ class PolymarketMonitor:
                     f"🎯 *Palpite:* `{outcome_name}`\n"
                     f"{seta} *{(abs(pct)):.1%}* em pouco tempo!\n"
                     f"💰 *Preço:* {old_price:.4f} ➔ {new_price:.4f}\n\n"
-                    f"[👉 Clique aqui para ver na Polymarket]({config.POLYMARKET_BASE_URL}/event/{market['slug']})"
+                    f"[👉 Clique aqui para ver na Polymarket]({link})"
                 )
                 await send_alert(msg)
