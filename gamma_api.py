@@ -4,28 +4,28 @@ from config import MAX_MARKETS_TO_MONITOR
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
-# Os IDs exatos que você me passou
+# IDs corrigidos com base no primaryTagId do seu navegador
 TAG_IDS = {
-    "NFL": "1,450,100639",
-    "NBA": "1,745,100639",
-    "ATP (Tênis)": "1,864,100639,101232",
-    "WTA (Tênis)": "1,864,100639,102123",
-    "VALORANT": "1,64,101672,100639",
-    "CS2": "1,64,100780,100639"
+    "NFL": "450",
+    "NBA": "10345",
+    "ATP (Tênis)": "101232",
+    "WTA (Tênis)": "102123",
+    "VALORANT": "101672",
+    "CS2": "100780"
 }
 
 def fetch_active_markets(limit: int = MAX_MARKETS_TO_MONITOR):
     all_markets = []
     
-    # Faz a busca para cada esporte
-    for sport, tag_id_str in TAG_IDS.items():
+    # Faz a busca para cada esporte separadamente
+    for sport, tag_id in TAG_IDS.items():
         params = {
             "active": "true",
             "closed": "false",
             "limit": limit,
             "order": "volume24hr",
             "ascending": "false",
-            "tag_id": tag_id_str,  # A API aceita múltiplos IDs separados por vírgula
+            "tag_id": tag_id,  # Envia um ID por vez
         }
         
         try:
@@ -37,7 +37,7 @@ def fetch_active_markets(limit: int = MAX_MARKETS_TO_MONITOR):
         except requests.exceptions.RequestException as e:
             print(f"   [!] Erro ao buscar mercados para {sport}: {e}")
 
-    # Remove duplicatas (um mercado pode ter várias tags e aparecer mais de uma vez)
+    # Remove duplicatas (caso um mercado apareça em mais de uma busca)
     unique_markets = list({m['id']: m for m in all_markets}.values())
     
     # Processa os campos JSON que vêm como string
@@ -48,8 +48,3 @@ def fetch_active_markets(limit: int = MAX_MARKETS_TO_MONITOR):
         
     # Retorna a lista final, respeitando o limite máximo definido no config.py
     return unique_markets[:limit]
-
-def get_market_by_slug(slug: str):
-    resp = requests.get(f"{GAMMA_BASE}/markets/slug/{slug}", timeout=10)
-    resp.raise_for_status()
-    return resp.json()
