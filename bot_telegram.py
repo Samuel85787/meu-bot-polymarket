@@ -4,6 +4,7 @@ import time
 import requests
 import config
 import os
+import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from gamma_api import fetch_active_markets
@@ -13,7 +14,31 @@ monitor_ativo = False
 task_monitor = None
 monitor_instance = None
 
-# Servidor HTTP simples para manter o Render acordado (Health Check)
+SETTINGS_FILE = "settings.json"
+
+# Carrega as configurações salvas (se existirem)
+def carregar_configuracoes():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                dados = json.load(f)
+                config.MIN_BET_AMOUNT = dados.get("min_bet", config.MIN_BET_AMOUNT)
+                config.PRICE_SPIKE_THRESHOLD = dados.get("spike", config.PRICE_SPIKE_THRESHOLD)
+                print("✅ Configurações salvas carregadas!")
+        except Exception as e:
+            print(f"Erro ao carregar configurações: {e}")
+
+# Salva as configurações no arquivo
+def salvar_configuracoes():
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump({
+                "min_bet": config.MIN_BET_AMOUNT,
+                "spike": config.PRICE_SPIKE_THRESHOLD
+            }, f)
+    except Exception as e:
+        print(f"Erro ao salvar configurações: {e}")
+
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -92,6 +117,7 @@ def escutar_telegram(loop):
                         try:
                             valor = float(texto.split()[1])
                             config.MIN_BET_AMOUNT = valor
+                            salvar_configuracoes() # <--- Salva no arquivo
                             enviar_mensagem(f"✅ *Filtro atualizado!* O bot agora avisa acima de ${valor:,.2f}")
                         except:
                             enviar_mensagem("❌ Use: `/setbet 5000` (para definir o valor em dólares)")
@@ -100,6 +126,7 @@ def escutar_telegram(loop):
                         try:
                             valor = float(texto.split()[1])
                             config.PRICE_SPIKE_THRESHOLD = valor
+                            salvar_configuracoes() # <--- Salva no arquivo
                             if monitor_instance and hasattr(monitor_instance, 'tracker'):
                                 monitor_instance.tracker.threshold = valor
                             enviar_mensagem(f"✅ *Filtro atualizado!* O bot agora avisa se oscilar {valor*100:.1f}%")
@@ -128,7 +155,8 @@ async def iniciar_monitor():
         print("Monitor parou de rodar.")
 
 async def main():
-    # Inicia o servidor HTTP em uma thread separada
+    carregar_configuracoes() # <--- Carrega os valores salvos ao ligar
+
     thread_web = threading.Thread(target=iniciar_servidor_web, daemon=True)
     thread_web.start()
 
