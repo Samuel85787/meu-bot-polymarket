@@ -76,7 +76,12 @@ class PolymarketMonitor:
         price = float(data.get("price", 0) or 0)
         usd_value = size * price
         
+        # Filtro 1: Valor mínimo
         if usd_value < config.MIN_BET_AMOUNT:
+            return
+            
+        # Filtro 2: Trava de Odds (Ignora odds < 2.0, ou seja, preço > 0.50)
+        if price > config.MAX_PRICE:
             return
 
         token_id = data.get("asset_id")
@@ -96,7 +101,7 @@ class PolymarketMonitor:
             f"🎯 *Palpite:* `{outcome_name}`\n"
             f"🔄 *Ação:* {side_texto}\n"
             f"💵 *Valor:* ${usd_value:,.2f}\n"
-            f"📊 *Preço Atual:* {price:.4f}\n\n"
+            f"📊 *Preço Atual:* {price:.4f} (Odd {1/price:.2f})\n\n"
             f"[👉 Clique aqui para ver na Polymarket]({link})"
         )
         await send_alert(msg)
@@ -111,6 +116,11 @@ class PolymarketMonitor:
         for change in changes:
             token_id = change.get("asset_id")
             new_price = float(change.get("price", 0) or 0)
+            
+            # Filtro 2: Trava de Odds (Ignora odds < 2.0, ou seja, preço > 0.50)
+            if new_price > config.MAX_PRICE:
+                continue
+                
             if token_id not in self.token_to_market:
                 continue
 
@@ -133,7 +143,7 @@ class PolymarketMonitor:
                 f"🏆 *Esporte/Mercado:* {market['question']}\n"
                 f"🎯 *Palpite:* `{outcome_name}`\n"
                 f"{seta} *{(abs(pct)):.1%}* em relação à média recente!\n"
-                f"💰 *Preço:* {old_price:.4f} ➔ {new_price:.4f}\n\n"
+                f"💰 *Preço:* {old_price:.4f} ➔ {new_price:.4f} (Odd {1/new_price:.2f})\n\n"
                 f"[👉 Clique aqui para ver na Polymarket]({link})"
             )
             await send_alert(msg)
