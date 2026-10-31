@@ -45,8 +45,8 @@ def escutar_telegram(loop):
         "▶️ /start - Ligar monitor\n"
         "🛑 /stop - Desligar monitor\n"
         "📊 /status - Ver status e filtros atuais\n"
-        "💵 /setbet 100 - Mudar filtro de aposta\n"
-        "⚡ /setspike 0.05 - Mudar filtro de oscilação"
+        "💵 /setbet [valor] - Mudar filtro de aposta\n"
+        "⚡ /setspike [porcentagem] - Mudar filtro de oscilação"
     )
     
     while True:
