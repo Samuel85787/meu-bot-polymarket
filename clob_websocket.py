@@ -27,22 +27,16 @@ class PolymarketMonitor:
         self.last_alert_time = {}
 
     def gerar_link(self, market):
-        """Cria o link correto. Tenta o Evento, se não tiver, tenta o Mercado."""
-        # Tenta pegar o slug do evento principal (onde as apostas de um jogo ficam agrupadas)
         if "events" in market and len(market["events"]) > 0:
             event_slug = market["events"][0].get("slug")
             if event_slug:
                 return f"{config.POLYMARKET_BASE_URL}/event/{event_slug}"
-        
-        # Se não achar o evento, tenta o link direto do mercado (para mercados únicos)
         market_slug = market.get("slug")
         if market_slug:
             return f"{config.POLYMARKET_BASE_URL}/market/{market_slug}"
-            
-        # Se tudo falhar, manda para a home
         return config.POLYMARKET_BASE_URL
 
-    def should_alert(self, market_slug, cooldown_minutes=5):
+    def should_alert(self, market_slug, cooldown_minutes=3): # Reduzi para 3 min para pegar reversões
         agora = time.time()
         ultimo_alerta = self.last_alert_time.get(market_slug, 0)
         if agora - ultimo_alerta < (cooldown_minutes * 60):
@@ -89,10 +83,7 @@ class PolymarketMonitor:
         market = self.token_to_market.get(token_id)
         outcome_name = self.token_to_outcome.get(token_id, "Desconhecido")
         
-        if not market:
-            return
-            
-        if not self.should_alert(market['slug']):
+        if not market or not self.should_alert(market['slug']):
             return
 
         side_raw = data.get("side", "?")
@@ -115,6 +106,7 @@ class PolymarketMonitor:
         if not changes and "price" in data and "asset_id" in data:
             changes = [data]
 
+        # Atualiza o threshold no tracker
         self.tracker.threshold = config.PRICE_SPIKE_THRESHOLD
 
         for change in changes:
@@ -123,24 +115,37 @@ class PolymarketMonitor:
             if token_id not in self.token_to_market:
                 continue
 
-            spike = self.tracker.add_price(token_id, new_price)
-            if spike:
-                market = self.token_to_market[token_id]
-                outcome_name = self.token_to_outcome.get(token_id, "Desconhecido")
+            result = self.tracker.add_price(token_id, new_price)
+            if not result:
+                continue
                 
-                if not self.should_alert(market['slug']):
-                    continue
-                    
-                old_price, pct = spike
+            event_type, old_price, new_price, pct = result
+            market = self.token_to_market[token_id]
+            outcome_name = self.token_to_outcome.get(token_id, "Desconhecido")
+            
+            if not self.should_alert(market['slug']):
+                continue
+
+            link = self.gerar_link(market)
+
+            # Formata o alerta de acordo com o que foi detectado
+            if event_type == "SPIKE":
                 seta = "📈 Subiu" if pct > 0 else "📉 Caiu"
-                link = self.gerar_link(market)
-                
-                msg = (
-                    f"⚡ *Movimentação Brusca de Preço*\n\n"
-                    f"🏆 *Esporte/Mercado:* {market['question']}\n"
-                    f"🎯 *Palpite:* `{outcome_name}`\n"
-                    f"{seta} *{(abs(pct)):.1%}* em pouco tempo!\n"
-                    f"💰 *Preço:* {old_price:.4f} ➔ {new_price:.4f}\n\n"
-                    f"[👉 Clique aqui para ver na Polymarket]({link})"
-                )
-                await send_alert(msg)
+                titulo = "⚡ *Movimentação de Preço (EMA)*"
+                detalhes = f"{seta} *{(abs(pct)):.1%}* em relação à média recente!"
+            elif event_type == "REVERSAL_DOWN":
+                titulo = "🚨 *Alerta de Armadilha (Reversão)*"
+                detalhes = f"📉 O preço atingiu o topo de {old_price:.4f} e caiu forte para {new_price:.4f} ({pct:.1%})."
+            elif event_type == "REVERSAL_UP":
+                titulo = "🚨 *Alerta de Armadilha (Reversão)*"
+                detalhes = f"📈 O preço tocou o fundo de {old_price:.4f} e disparou para {new_price:.4f} ({pct:+.1%})."
+            
+            msg = (
+                f"{titulo}\n\n"
+                f"🏆 *Esporte/Mercado:* {market['question']}\n"
+                f"🎯 *Palpite:* `{outcome_name}`\n"
+                f"{detalhes}\n"
+                f"💰 *Preço Atual:* {new_price:.4f}\n\n"
+                f"[👉 Clique aqui para ver na Polymarket]({link})"
+            )
+            await send_alert(msg)
