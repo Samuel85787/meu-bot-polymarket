@@ -4,7 +4,6 @@ from config import MAX_MARKETS_TO_MONITOR
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
-# IDs corrigidos com base no primaryTagId do seu navegador
 TAG_IDS = {
     "NFL": "450",
     "NBA": "10345",
@@ -14,10 +13,32 @@ TAG_IDS = {
     "CS2": "100780"
 }
 
+# 🎯 Tipos de mercado permitidos (game lines + props populares)
+# Remova ou adicione itens conforme desejar.
+TIPOS_PERMITIDOS = [
+    "moneyline",                 # Vencedor da partida
+    "spreads",                   # Handicap de pontos
+    "totals",                    # Over/Under
+    # --- Props de NFL ---
+    "anytime_touchdowns",
+    "passing_yards",
+    "rushing_yards",
+    "receiving_yards",
+    "passing_touchdowns",
+    # --- Props de NBA ---
+    "points",
+    "rebounds",
+    "assists",
+    "assists_points_rebounds",
+    "double_doubles",
+    # --- Props de CS2/Valorant ---
+    "first_blood_game",
+    "total_kills",
+]
+
 def fetch_active_markets(limit: int = MAX_MARKETS_TO_MONITOR):
     all_markets = []
     
-    # Faz a busca para cada esporte separadamente
     for sport, tag_id in TAG_IDS.items():
         params = {
             "active": "true",
@@ -25,7 +46,8 @@ def fetch_active_markets(limit: int = MAX_MARKETS_TO_MONITOR):
             "limit": limit,
             "order": "volume24hr",
             "ascending": "false",
-            "tag_id": tag_id,  # Envia um ID por vez
+            "tag_id": tag_id,
+            "sports_market_types": TIPOS_PERMITIDOS,
         }
         
         try:
@@ -37,14 +59,11 @@ def fetch_active_markets(limit: int = MAX_MARKETS_TO_MONITOR):
         except requests.exceptions.RequestException as e:
             print(f"   [!] Erro ao buscar mercados para {sport}: {e}")
 
-    # Remove duplicatas (caso um mercado apareça em mais de uma busca)
     unique_markets = list({m['id']: m for m in all_markets}.values())
     
-    # Processa os campos JSON que vêm como string
     for m in unique_markets:
         m["clobTokenIds"] = json.loads(m.get("clobTokenIds") or "[]")
         m["outcomes"] = json.loads(m.get("outcomes") or "[]")
         m["outcomePrices"] = json.loads(m.get("outcomePrices") or "[]")
         
-    # Retorna a lista final, respeitando o limite máximo definido no config.py
     return unique_markets[:limit]
