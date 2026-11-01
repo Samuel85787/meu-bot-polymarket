@@ -105,28 +105,31 @@ class PolymarketMonitor:
             return
 
         side_raw = data.get("side", "?")
-        side_texto = "Compra (Aposta a Favor)" if side_raw == "BUY" else "Venda (Aposta Contra)"
+        side_texto = "🟢 COMPRA (A Favor)" if side_raw == "BUY" else "🔴 VENDA (Contra)"
         link = self.gerar_link(market)
         
-        # 🐋 DIFERENCIAÇÃO DE ALERTAS DE ACORDO COM O VALOR
+        # 🐋 DIFERENCIAÇÃO VISUAL DE ACORDO COM O VALOR
         if usd_value >= config.MEGA_BET_AMOUNT:
-            titulo = "🚨🔥 *MEGA BALEIA DETECTADA!* 🔥🚨"
-            leitura = "⚠️ *Atenção:* Volume altíssimo! Pode ser insider, sindicato ou movimento de mercado."
-            valor_formatado = f"💎 *{usd_value:,.2f}*"
+            titulo = "🚨🔥 *MEGA BALEIA NA ÁREA!* 🔥🚨"
+            leitura = "⚠️ _Atenção: Volume fora do comum. Pode ser insider._"
+            valor_formatado = f"💎 *${usd_value:,.2f}*"
         else:
             titulo = "🐋 *Aposta Grande Detectada*"
-            leitura = "💡 *Leitura:* Dinheiro inteligente entrando no mercado."
-            valor_formatado = f"💵 *{usd_value:,.2f}*"
+            leitura = "💡 _Dinheiro inteligente entrando no mercado._"
+            valor_formatado = f"💵 *${usd_value:,.2f}*"
 
         msg = (
-            f"{titulo}\n\n"
-            f"🏆 *Mercado:* {market['question']}\n"
+            f"{titulo}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🏆 *Jogo:* {market['question']}\n"
             f"🎯 *Palpite:* `{outcome_name}`\n"
             f"🔄 *Ação:* {side_texto}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
             f"{valor_formatado}\n"
-            f"📊 *Preço:* {price:.2f} (Odd {1/price:.2f})\n"
+            f"📊 *Preço:* {price:.2f} | *Odd:* {1/price:.2f}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
             f"{leitura}\n\n"
-            f"[👉 Clique aqui para ver na Polymarket]({link})"
+            f"[👉 ABRIR NA POLYMARKET]({link})"
         )
         await send_alert(msg)
 
@@ -164,24 +167,29 @@ class PolymarketMonitor:
 
             link = self.gerar_link(market)
             
+            # FORMATO VISUAL PARA PREÇO SUBINDO
             if pct > 0:
-                titulo = "📈 *PREÇO SUBIU (Odd Caiu)*"
-                leitura = "💡 *Leitura:* O mercado está confiante. Provável notícia ou dinheiro entrando forte."
-                movimento = f"🔼 {old_price:.2f} ➔ {new_price:.2f} (+{pct:.1%})"
-                odds = f"📉 {1/old_price:.2f} ➔ {1/new_price:.2f}"
+                titulo = "📈 *PREÇO SUBIU* (Odd Caiu)"
+                leitura = "💡 _O mercado está confiante. Alguém sabe de algo._"
+                movimento = f"🔼 `{old_price:.2f} ➔ {new_price:.2f}`"
+                odds = f"📉 `{1/old_price:.2f} ➔ {1/new_price:.2f}`"
+            # FORMATO VISUAL PARA PREÇO CAINDO
             else:
-                titulo = "📉 *PREÇO CAIU (Odd Subiu)*"
-                leitura = "💡 *Leitura:* Desconto / Oportunidade de valor. O mercado está com medo ou desistindo."
-                movimento = f"🔽 {old_price:.2f} ➔ {new_price:.2f} ({pct:.1%})"
-                odds = f"📈 {1/old_price:.2f} ➔ {1/new_price:.2f}"
+                titulo = "📉 *PREÇO CAIU* (Odd Subiu)"
+                leitura = "💡 _Desconto! O mercado desistiu, a odd está alta._"
+                movimento = f"🔽 `{old_price:.2f} ➔ {new_price:.2f}`"
+                odds = f"📈 `{1/old_price:.2f} ➔ {1/new_price:.2f}`"
                 
             msg = (
-                f"{titulo}\n\n"
-                f"🏆 *Mercado:* {market['question']}\n"
+                f"{titulo}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🏆 *Jogo:* {market['question']}\n"
                 f"🎯 *Palpite:* `{outcome_name}`\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
                 f"📊 *Preço:* {movimento}\n"
-                f"💰 *Odds:* {odds}\n"
+                f"💰 *Odd:* {odds}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
                 f"{leitura}\n\n"
-                f"[👉 Clique aqui para ver na Polymarket]({link})"
+                f"[👉 ABRIR NA POLYMARKET]({link})"
             )
             await send_alert(msg)
