@@ -92,7 +92,6 @@ class PolymarketMonitor:
         price = float(data.get("price", 0) or 0)
         usd_value = size * price
         
-        # Filtros de valor e Odds (Máxima e Mínima)
         if usd_value < config.MIN_BET_AMOUNT:
             return
         if price > config.MAX_PRICE or price < config.MIN_PRICE:
@@ -109,13 +108,24 @@ class PolymarketMonitor:
         side_texto = "Compra (Aposta a Favor)" if side_raw == "BUY" else "Venda (Aposta Contra)"
         link = self.gerar_link(market)
         
+        # 🐋 DIFERENCIAÇÃO DE ALERTAS DE ACORDO COM O VALOR
+        if usd_value >= config.MEGA_BET_AMOUNT:
+            titulo = "🚨🔥 *MEGA BALEIA DETECTADA!* 🔥🚨"
+            leitura = "⚠️ *Atenção:* Volume altíssimo! Pode ser insider, sindicato ou movimento de mercado."
+            valor_formatado = f"💎 *{usd_value:,.2f}*"
+        else:
+            titulo = "🐋 *Aposta Grande Detectada*"
+            leitura = "💡 *Leitura:* Dinheiro inteligente entrando no mercado."
+            valor_formatado = f"💵 *{usd_value:,.2f}*"
+
         msg = (
-            f"🐋 *Aposta Grande Detectada*\n\n"
-            f"🏆 *Esporte/Mercado:* {market['question']}\n"
+            f"{titulo}\n\n"
+            f"🏆 *Mercado:* {market['question']}\n"
             f"🎯 *Palpite:* `{outcome_name}`\n"
             f"🔄 *Ação:* {side_texto}\n"
-            f"💵 *Valor:* ${usd_value:,.2f}\n"
-            f"📊 *Preço Atual:* {price:.4f} (Odd {1/price:.2f})\n\n"
+            f"{valor_formatado}\n"
+            f"📊 *Preço:* {price:.2f} (Odd {1/price:.2f})\n"
+            f"{leitura}\n\n"
             f"[👉 Clique aqui para ver na Polymarket]({link})"
         )
         await send_alert(msg)
@@ -131,7 +141,6 @@ class PolymarketMonitor:
             token_id = change.get("asset_id")
             new_price = float(change.get("price", 0) or 0)
             
-            # Filtros de Odds (Máxima e Mínima)
             if new_price > config.MAX_PRICE or new_price < config.MIN_PRICE:
                 continue
                 
@@ -154,14 +163,25 @@ class PolymarketMonitor:
                 continue
 
             link = self.gerar_link(market)
-            seta = "📈 Subiu" if pct > 0 else "📉 Caiu"
             
+            if pct > 0:
+                titulo = "📈 *PREÇO SUBIU (Odd Caiu)*"
+                leitura = "💡 *Leitura:* O mercado está confiante. Provável notícia ou dinheiro entrando forte."
+                movimento = f"🔼 {old_price:.2f} ➔ {new_price:.2f} (+{pct:.1%})"
+                odds = f"📉 {1/old_price:.2f} ➔ {1/new_price:.2f}"
+            else:
+                titulo = "📉 *PREÇO CAIU (Odd Subiu)*"
+                leitura = "💡 *Leitura:* Desconto / Oportunidade de valor. O mercado está com medo ou desistindo."
+                movimento = f"🔽 {old_price:.2f} ➔ {new_price:.2f} ({pct:.1%})"
+                odds = f"📈 {1/old_price:.2f} ➔ {1/new_price:.2f}"
+                
             msg = (
-                f"⚡ *Movimentação de Preço*\n\n"
-                f"🏆 *Esporte/Mercado:* {market['question']}\n"
+                f"{titulo}\n\n"
+                f"🏆 *Mercado:* {market['question']}\n"
                 f"🎯 *Palpite:* `{outcome_name}`\n"
-                f"{seta} *{(abs(pct)):.1%}* em relação à média recente!\n"
-                f"💰 *Preço:* {old_price:.4f} ➔ {new_price:.4f} (Odd {1/new_price:.2f})\n\n"
+                f"📊 *Preço:* {movimento}\n"
+                f"💰 *Odds:* {odds}\n"
+                f"{leitura}\n\n"
                 f"[👉 Clique aqui para ver na Polymarket]({link})"
             )
             await send_alert(msg)
