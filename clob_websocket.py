@@ -61,31 +61,40 @@ class PolymarketMonitor:
         return True
 
     async def run(self):
-        async with websockets.connect(WS_URL) as ws:
-            assets = list(self.token_to_market.keys())
-            sub_msg = {
-                "type": "market",
-                "assets_ids": assets,
-                "initial_dump": True,
-            }
-            await ws.send(json.dumps(sub_msg))
-            print(f"🔗 Conectado. Monitorando {len(assets)} tokens.")
+        # 🔄 LOOP INFINITO DE RECONEXÃO
+        while True:
+            try:
+                # ping_interval=20 envia sinal de vida a cada 20s
+                async with websockets.connect(WS_URL, ping_interval=20) as ws:
+                    assets = list(self.token_to_market.keys())
+                    sub_msg = {
+                        "type": "market",
+                        "assets_ids": assets,
+                        "initial_dump": True,
+                    }
+                    await ws.send(json.dumps(sub_msg))
+                    print(f"🔗 Conectado. Monitorando {len(assets)} tokens.")
 
-            async for raw in ws:
-                if raw == "PONG":
-                    continue
-                try:
-                    data = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
+                    async for raw in ws:
+                        if raw == "PONG":
+                            continue
+                        try:
+                            data = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
 
-                events = data if isinstance(data, list) else [data]
-                for ev in events:
-                    et = ev.get("event_type")
-                    if et == "last_trade_price":
-                        await self.handle_trade(ev)
-                    elif et == "price_change":
-                        await self.handle_price_change(ev)
+                        events = data if isinstance(data, list) else [data]
+                        for ev in events:
+                            et = ev.get("event_type")
+                            if et == "last_trade_price":
+                                await self.handle_trade(ev)
+                            elif et == "price_change":
+                                await self.handle_price_change(ev)
+            
+            except (websockets.exceptions.ConnectionClosed, Exception) as e:
+                print(f"⚠️ Conexão caiu ({e}). Reconectando em 5 segundos...")
+                await asyncio.sleep(5) # Espera 5 segundos e tenta de novo
+                continue
 
     async def handle_trade(self, data):
         size = float(data.get("size", 0) or 0)
@@ -108,7 +117,6 @@ class PolymarketMonitor:
         side_texto = "🟢 COMPRA (A Favor)" if side_raw == "BUY" else "🔴 VENDA (Contra)"
         link = self.gerar_link(market)
         
-        # 🐋 DIFERENCIAÇÃO VISUAL DE ACORDO COM O VALOR
         if usd_value >= config.MEGA_BET_AMOUNT:
             titulo = "🚨🔥 *MEGA BALEIA NA ÁREA!* 🔥🚨"
             leitura = "⚠️ _Atenção: Volume fora do comum. Pode ser insider._"
@@ -167,13 +175,11 @@ class PolymarketMonitor:
 
             link = self.gerar_link(market)
             
-            # FORMATO VISUAL PARA PREÇO SUBINDO
             if pct > 0:
                 titulo = "📈 *PREÇO SUBIU* (Odd Caiu)"
                 leitura = "💡 _O mercado está confiante. Alguém sabe de algo._"
                 movimento = f"🔼 `{old_price:.2f} ➔ {new_price:.2f}`"
                 odds = f"📉 `{1/old_price:.2f} ➔ {1/new_price:.2f}`"
-            # FORMATO VISUAL PARA PREÇO CAINDO
             else:
                 titulo = "📉 *PREÇO CAIU* (Odd Subiu)"
                 leitura = "💡 _Desconto! O mercado desistiu, a odd está alta._"
