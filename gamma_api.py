@@ -5,8 +5,6 @@ import config
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
 # 🎯 CONFIGURAÇÃO CORRETA POR ESPORTE
-# NBA usa series_id. Tênis e E-sports usam tag_id.
-# O tag_id=100639 filtra apenas "jogos" (single games), ignorando futuros de temporada.
 ESPORTES = {
     "NBA": {"param": "series_id", "id": "10345"},          # ID de série da NBA
     "Tênis": {"param": "tag_id", "id": "864"},              # ID de tag para Tênis (ATP/WTA)
@@ -22,11 +20,9 @@ LIMITES_POR_ESPORTE = {
     "NFL": 30
 }
 
-# 🎯 TIPOS DE MERCADO: Foco em jogos, não em futuros
-TIPOS_PERMITIDOS = [
-    "moneyline", "spreads", "totals",
-    "player_props", "team_props"
-]
+# 🎯 A MUDANÇA ESTÁ AQUI: Foco EXCLUSIVO em Moneyline (Vencedor)
+# Isso resolve o problema das odds erradas.
+TIPOS_PERMITIDOS = ["moneyline"]
 
 def fetch_active_markets():
     all_markets = []
@@ -48,8 +44,7 @@ def fetch_active_markets():
         # Adiciona o parâmetro específico (series_id ou tag_id)
         params[dados["param"]] = dados["id"]
         
-        # 🎯 Adiciona o filtro de "jogos" para NBA e NFL (e outros que suportam)
-        # Para Tênis e E-sports, o tag_id base já deve trazer os jogos.
+        # 🎯 Adiciona o filtro de "jogos" para NBA e NFL
         if sport in ["NBA", "NFL"]:
             params["tag_id"] = "100639"  # Filtra apenas jogos individuais
         
