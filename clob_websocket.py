@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+import datetime
 import websockets
 import config
 from telegram_notifier import send_alert
@@ -25,6 +26,21 @@ class PolymarketMonitor:
             window=config.PRICE_SPIKE_WINDOW,
         )
         self.last_alert_time = {}
+
+    def is_market_finished(self, market):
+        end_date_str = market.get("endDate")
+        if not end_date_str:
+            return False
+        try:
+            end_date_str = end_date_str.replace("Z", "+00:00")
+            end_date = datetime.datetime.fromisoformat(end_date_str)
+            end_date_with_buffer = end_date + datetime.timedelta(hours=3)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            if now > end_date_with_buffer:
+                return True
+        except Exception:
+            pass 
+        return False
 
     def gerar_link(self, market):
         if "events" in market and len(market["events"]) > 0:
@@ -76,19 +92,17 @@ class PolymarketMonitor:
         price = float(data.get("price", 0) or 0)
         usd_value = size * price
         
-        # Filtro 1: Valor mínimo
+        # Filtros de valor e Odds (Máxima e Mínima)
         if usd_value < config.MIN_BET_AMOUNT:
             return
-            
-        # Filtro 2: Trava de Odds (Ignora odds < 2.0, ou seja, preço > 0.50)
-        if price > config.MAX_PRICE:
+        if price > config.MAX_PRICE or price < config.MIN_PRICE:
             return
 
         token_id = data.get("asset_id")
         market = self.token_to_market.get(token_id)
         outcome_name = self.token_to_outcome.get(token_id, "Desconhecido")
         
-        if not market or not self.should_alert(market['slug']):
+        if not market or self.is_market_finished(market) or not self.should_alert(market['slug']):
             return
 
         side_raw = data.get("side", "?")
@@ -117,11 +131,17 @@ class PolymarketMonitor:
             token_id = change.get("asset_id")
             new_price = float(change.get("price", 0) or 0)
             
-            # Filtro 2: Trava de Odds (Ignora odds < 2.0, ou seja, preço > 0.50)
-            if new_price > config.MAX_PRICE:
+            # Filtros de Odds (Máxima e Mínima)
+            if new_price > config.MAX_PRICE or new_price < config.MIN_PRICE:
                 continue
                 
             if token_id not in self.token_to_market:
+                continue
+
+            market = self.token_to_market[token_id]
+            outcome_name = self.token_to_outcome.get(token_id, "Desconhecido")
+
+            if self.is_market_finished(market):
                 continue
 
             result = self.tracker.add_price(token_id, new_price)
@@ -129,8 +149,6 @@ class PolymarketMonitor:
                 continue
                 
             event_type, old_price, new_price, pct = result
-            market = self.token_to_market[token_id]
-            outcome_name = self.token_to_outcome.get(token_id, "Desconhecido")
             
             if not self.should_alert(market['slug']):
                 continue
