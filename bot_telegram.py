@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from gamma_api import fetch_active_markets
 from clob_websocket import PolymarketMonitor
+from odds_checker import check_arbitrage # <--- Importando a Odds Value
 
 monitor_ativo = False
 task_monitor = None
@@ -16,7 +17,6 @@ monitor_instance = None
 
 SETTINGS_FILE = "settings.json"
 
-# Carrega as configurações salvas (se existirem)
 def carregar_configuracoes():
     if os.path.exists(SETTINGS_FILE):
         try:
@@ -24,17 +24,18 @@ def carregar_configuracoes():
                 dados = json.load(f)
                 config.MIN_BET_AMOUNT = dados.get("min_bet", config.MIN_BET_AMOUNT)
                 config.PRICE_SPIKE_THRESHOLD = dados.get("spike", config.PRICE_SPIKE_THRESHOLD)
+                config.ENABLE_WHALE_ALERTS = dados.get("whales", config.ENABLE_WHALE_ALERTS)
                 print("✅ Configurações salvas carregadas!")
         except Exception as e:
             print(f"Erro ao carregar configurações: {e}")
 
-# Salva as configurações no arquivo
 def salvar_configuracoes():
     try:
         with open(SETTINGS_FILE, "w") as f:
             json.dump({
                 "min_bet": config.MIN_BET_AMOUNT,
-                "spike": config.PRICE_SPIKE_THRESHOLD
+                "spike": config.PRICE_SPIKE_THRESHOLD,
+                "whales": config.ENABLE_WHALE_ALERTS
             }, f)
     except Exception as e:
         print(f"Erro ao salvar configurações: {e}")
@@ -65,15 +66,6 @@ def escutar_telegram(loop):
     offset = 0
     print("🤖 Controle do Telegram ativo. Aguardando comandos...")
     
-    ajuda = (
-        "\n\n*Comandos disponíveis:*\n"
-        "▶️ /start - Ligar monitor\n"
-        "🛑 /stop - Desligar monitor\n"
-        "📊 /status - Ver status e filtros atuais\n"
-        "💵 /setbet [valor] - Mudar filtro de aposta\n"
-        "⚡ /setspike [porcentagem] - Mudar filtro de oscilação"
-    )
-    
     while True:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={offset}&timeout=30"
         try:
@@ -90,9 +82,9 @@ def escutar_telegram(loop):
                         if not monitor_ativo:
                             monitor_ativo = True
                             task_monitor = asyncio.run_coroutine_threadsafe(iniciar_monitor(), loop)
-                            enviar_mensagem("✅ *Monitor Ligado!* Buscando mercados..." + ajuda)
+                            enviar_mensagem("✅ *Monitor Ligado!*")
                         else:
-                            enviar_mensagem("⚠️ O monitor já está rodando!" + ajuda)
+                            enviar_mensagem("⚠️ O monitor já está rodando!")
                             
                     elif texto == "/stop" or texto == "/parar":
                         if monitor_ativo:
@@ -105,11 +97,20 @@ def escutar_telegram(loop):
                             
                     elif texto == "/status" or texto == "/help" or texto == "/ajuda":
                         estado = "🟢 Ligado" if monitor_ativo else "🔴 Desligado"
+                        baleias = "🟢 Ligado" if config.ENABLE_WHALE_ALERTS else "🔴 Desligado"
+                        
                         msg = (
                             f"📊 *Status do Bot:* {estado}\n"
                             f"💵 *Filtro de Aposta:* ${config.MIN_BET_AMOUNT:,.2f}\n"
-                            f"⚡ *Filtro de Oscilação:* {config.PRICE_SPIKE_THRESHOLD*100:.1f}%"
-                            + ajuda
+                            f"⚡ *Filtro de Oscilação:* {config.PRICE_SPIKE_THRESHOLD*100:.1f}%\n"
+                            f"🐋 *Alertas de Baleias:* {baleias}\n\n"
+                            f"*Comandos disponíveis:*\n"
+                            f"▶️ /start - Ligar monitor\n"
+                            f"🛑 /stop - Desligar monitor\n"
+                            f"📊 /status - Ver status atual\n"
+                            f"💵 /setbet [valor] - Mudar filtro de aposta\n"
+                            f"⚡ /setspike [%] - Mudar filtro de oscilação\n"
+                            f"🐋 /setwhale - Ligar/Desligar alertas de baleias"
                         )
                         enviar_mensagem(msg)
 
@@ -117,24 +118,30 @@ def escutar_telegram(loop):
                         try:
                             valor = float(texto.split()[1])
                             config.MIN_BET_AMOUNT = valor
-                            salvar_configuracoes() # <--- Salva no arquivo
+                            salvar_configuracoes()
                             enviar_mensagem(f"✅ *Filtro atualizado!* O bot agora avisa acima de ${valor:,.2f}")
                         except:
-                            enviar_mensagem("❌ Use: `/setbet 5000` (para definir o valor em dólares)")
+                            enviar_mensagem("❌ Use: `/setbet 5000`")
 
                     elif texto.startswith("/setspike"):
                         try:
                             valor = float(texto.split()[1])
                             config.PRICE_SPIKE_THRESHOLD = valor
-                            salvar_configuracoes() # <--- Salva no arquivo
+                            salvar_configuracoes()
                             if monitor_instance and hasattr(monitor_instance, 'tracker'):
                                 monitor_instance.tracker.threshold = valor
                             enviar_mensagem(f"✅ *Filtro atualizado!* O bot agora avisa se oscilar {valor*100:.1f}%")
                         except:
-                            enviar_mensagem("❌ Use: `/setspike 0.15` (ex: 0.15 = 15%)")
+                            enviar_mensagem("❌ Use: `/setspike 0.15`")
+
+                    elif texto == "/setwhale":
+                        config.ENABLE_WHALE_ALERTS = not config.ENABLE_WHALE_ALERTS
+                        salvar_configuracoes()
+                        estado_baleia = "🟢 LIGADOS" if config.ENABLE_WHALE_ALERTS else "🔴 DESLIGADOS"
+                        enviar_mensagem(f"🐋 *Alertas de Baleias:* {estado_baleia}")
 
                     else:
-                        enviar_mensagem("Comando não reconhecido." + ajuda)
+                        enviar_mensagem("Comando não reconhecido. Mande /status para ver a lista.")
         except Exception:
             time.sleep(5)
 
@@ -147,23 +154,32 @@ async def iniciar_monitor():
         monitor_instance = PolymarketMonitor(markets)
         await monitor_instance.run()
     except asyncio.CancelledError:
-        print("Monitor cancelado pelo usuário.")
+        print("Monitor cancelado.")
     except Exception as e:
         enviar_mensagem(f"❌ Erro no monitor: {e}")
     finally:
         monitor_ativo = False
-        print("Monitor parou de rodar.")
+
+async def loop_odds_value():
+    """Roda a verificação de Odds Value a cada 6 horas (21600 segundos)"""
+    while True:
+        if monitor_ativo:
+            await check_arbitrage()
+        await asyncio.sleep(21600)
 
 async def main():
-    carregar_configuracoes() # <--- Carrega os valores salvos ao ligar
-
+    carregar_configuracoes()
     thread_web = threading.Thread(target=iniciar_servidor_web, daemon=True)
     thread_web.start()
 
     loop = asyncio.get_running_loop()
     thread_telegram = threading.Thread(target=escutar_telegram, args=(loop,), daemon=True)
     thread_telegram.start()
-    enviar_mensagem("🤖 Bot iniciado! Digite /start para começar a monitorar.")
+    
+    # Inicia o loop da Odds Value em background
+    asyncio.create_task(loop_odds_value()) 
+    
+    enviar_mensagem("🤖 Bot iniciado! Mande /start para monitorar.")
     
     while True:
         await asyncio.sleep(1)
