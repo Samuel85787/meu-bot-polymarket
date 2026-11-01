@@ -4,25 +4,31 @@ import config
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
-# 🎯 CONFIGURAÇÃO CORRETA POR ESPORTE
+# 🎯 IDs de tag corretos para cada esporte
 ESPORTES = {
-    "NBA": {"param": "series_id", "id": "10345"},          # ID de série da NBA
-    "Tênis": {"param": "tag_id", "id": "864"},              # ID de tag para Tênis (ATP/WTA)
-    "E-sports": {"param": "tag_id", "id": "64"},            # ID de tag base para E-sports
-    "NFL": {"param": "tag_id", "id": "450"}                 # ID de tag para NFL
+    "NBA": {"tag_id": "745"},        # Tag específica da NBA
+    "NFL": {"tag_id": "450"},
+    "Tênis ATP": {"tag_id": "101232"},
+    "Tênis WTA": {"tag_id": "102123"},
+    "CS2": {"tag_id": "100780"},
+    "VALORANT": {"tag_id": "101672"}
 }
 
-# 🎯 COTAS AJUSTADAS: Mais mercados para NBA, Tênis e E-sports
+# 🎯 Cota de mercados por esporte
 LIMITES_POR_ESPORTE = {
     "NBA": 100,
-    "Tênis": 150,
-    "E-sports": 100,
-    "NFL": 30
+    "NFL": 30,
+    "Tênis ATP": 80,
+    "Tênis WTA": 80,
+    "CS2": 80,
+    "VALORANT": 80
 }
 
-# 🎯 A MUDANÇA ESTÁ AQUI: Foco EXCLUSIVO em Moneyline (Vencedor)
-# Isso resolve o problema das odds erradas.
+# 🎯 Foco exclusivo em moneyline (evita futuros e outros tipos)
 TIPOS_PERMITIDOS = ["moneyline"]
+
+# 🎯 Tag de futebol para excluir (ID 100350)
+TAG_FUTEBOL = "100350"
 
 def fetch_active_markets():
     all_markets = []
@@ -30,23 +36,17 @@ def fetch_active_markets():
     for sport, dados in ESPORTES.items():
         limite = LIMITES_POR_ESPORTE.get(sport, 50)
         
-        # Monta os parâmetros base
         params = {
             "active": "true",
             "closed": "false",
             "limit": limite,
             "order": "volume24hr",
             "ascending": "false",
+            "tag_id": dados["tag_id"],          # Tag específica do esporte
             "sports_market_types": TIPOS_PERMITIDOS,
             "liquidity_num_min": 1000,
+            "exclude_tag_id": TAG_FUTEBOL      # Exclui futebol
         }
-        
-        # Adiciona o parâmetro específico (series_id ou tag_id)
-        params[dados["param"]] = dados["id"]
-        
-        # 🎯 Adiciona o filtro de "jogos" para NBA e NFL
-        if sport in ["NBA", "NFL"]:
-            params["tag_id"] = "100639"  # Filtra apenas jogos individuais
         
         try:
             resp = requests.get(f"{GAMMA_BASE}/markets", params=params, timeout=10)
@@ -60,9 +60,18 @@ def fetch_active_markets():
     # Remove duplicatas
     unique_markets = list({m['id']: m for m in all_markets}.values())
     
+    # 🛡️ Filtro de segurança: remove qualquer mercado que ainda mencione futebol
+    filtrados = []
     for m in unique_markets:
+        titulo = m.get("question", "").lower()
+        if "soccer" in titulo or "football" in titulo:
+            continue
+        filtrados.append(m)
+    
+    # Processa os campos JSON
+    for m in filtrados:
         m["clobTokenIds"] = json.loads(m.get("clobTokenIds") or "[]")
         m["outcomes"] = json.loads(m.get("outcomes") or "[]")
         m["outcomePrices"] = json.loads(m.get("outcomePrices") or "[]")
         
-    return unique_markets
+    return filtrados
