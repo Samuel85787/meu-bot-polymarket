@@ -26,6 +26,9 @@ class PolymarketMonitor:
             window=config.PRICE_SPIKE_WINDOW,
         )
         self.last_alert_time = {}
+        
+        # 🛑 FREIO GLOBAL DE BALEIAS: Guarda a hora do último alerta de baleia
+        self.last_whale_alert_global = 0 
 
     def is_market_finished(self, market):
         end_date_str = market.get("endDate")
@@ -61,10 +64,8 @@ class PolymarketMonitor:
         return True
 
     async def run(self):
-        # 🔄 LOOP INFINITO DE RECONEXÃO
         while True:
             try:
-                # ping_interval=20 envia sinal de vida a cada 20s
                 async with websockets.connect(WS_URL, ping_interval=20) as ws:
                     assets = list(self.token_to_market.keys())
                     sub_msg = {
@@ -92,11 +93,15 @@ class PolymarketMonitor:
                                 await self.handle_price_change(ev)
             
             except (websockets.exceptions.ConnectionClosed, Exception) as e:
-                print(f"⚠️ Conexão caiu ({e}). Reconectando em 5 segundos...")
-                await asyncio.sleep(5) # Espera 5 segundos e tenta de novo
+                print(f"⚠️ Conexão caiu. Reconectando em 5s...")
+                await asyncio.sleep(5) 
                 continue
 
     async def handle_trade(self, data):
+        # Se as baleias estiverem desligadas no Telegram, ignora
+        if not config.ENABLE_WHALE_ALERTS:
+            return
+
         size = float(data.get("size", 0) or 0)
         price = float(data.get("price", 0) or 0)
         usd_value = size * price
@@ -106,12 +111,21 @@ class PolymarketMonitor:
         if price > config.MAX_PRICE or price < config.MIN_PRICE:
             return
 
+        # 🛑 FREIO GLOBAL: Se já mandou um alerta de baleia nos últimos 10 minutos (600s), ignora!
+        agora = time.time()
+        if agora - self.last_whale_alert_global < 600: 
+            return
+
         token_id = data.get("asset_id")
         market = self.token_to_market.get(token_id)
         outcome_name = self.token_to_outcome.get(token_id, "Desconhecido")
         
-        if not market or self.is_market_finished(market) or not self.should_alert(market['slug']):
+        # Cooldown individual do mercado (evita spam do mesmo jogo)
+        if not market or self.is_market_finished(market) or not self.should_alert(market['slug'], cooldown_minutes=15):
             return
+
+        # Se passou por todos os filtros, atualiza o freio global
+        self.last_whale_alert_global = agora
 
         side_raw = data.get("side", "?")
         side_texto = "🟢 COMPRA (A Favor)" if side_raw == "BUY" else "🔴 VENDA (Contra)"
