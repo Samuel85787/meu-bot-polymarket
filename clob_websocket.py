@@ -26,8 +26,6 @@ class PolymarketMonitor:
             window=config.PRICE_SPIKE_WINDOW,
         )
         self.last_alert_time = {}
-        
-        # 🛑 FREIO GLOBAL DE BALEIAS: Guarda a hora do último alerta de baleia
         self.last_whale_alert_global = 0 
 
     def is_market_finished(self, market):
@@ -98,7 +96,6 @@ class PolymarketMonitor:
                 continue
 
     async def handle_trade(self, data):
-        # Se as baleias estiverem desligadas no Telegram, ignora
         if not config.ENABLE_WHALE_ALERTS:
             return
 
@@ -111,7 +108,6 @@ class PolymarketMonitor:
         if price > config.MAX_PRICE or price < config.MIN_PRICE:
             return
 
-        # 🛑 FREIO GLOBAL: Se já mandou um alerta de baleia nos últimos 10 minutos (600s), ignora!
         agora = time.time()
         if agora - self.last_whale_alert_global < 600: 
             return
@@ -120,12 +116,14 @@ class PolymarketMonitor:
         market = self.token_to_market.get(token_id)
         outcome_name = self.token_to_outcome.get(token_id, "Desconhecido")
         
-        # Cooldown individual do mercado (evita spam do mesmo jogo)
         if not market or self.is_market_finished(market) or not self.should_alert(market['slug'], cooldown_minutes=15):
             return
 
-        # Se passou por todos os filtros, atualiza o freio global
         self.last_whale_alert_global = agora
+
+        # 🆕 PEGANDO VOLUME E LIQUIDEZ DO MERCADO
+        volume_total = float(market.get("volume", 0) or 0)
+        liquidez = float(market.get("liquidity", 0) or 0)
 
         side_raw = data.get("side", "?")
         side_texto = "🟢 COMPRA (A Favor)" if side_raw == "BUY" else "🔴 VENDA (Contra)"
@@ -149,6 +147,9 @@ class PolymarketMonitor:
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{valor_formatado}\n"
             f"📊 *Preço:* {price:.2f} | *Odd:* {1/price:.2f}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
+            f"💧 *Liquidez:* ${liquidez:,.0f}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{leitura}\n\n"
             f"[👉 ABRIR NA POLYMARKET]({link})"
@@ -189,6 +190,10 @@ class PolymarketMonitor:
 
             link = self.gerar_link(market)
             
+            # 🆕 PEGANDO VOLUME E LIQUIDEZ DO MERCADO
+            volume_total = float(market.get("volume", 0) or 0)
+            liquidez = float(market.get("liquidity", 0) or 0)
+
             if pct > 0:
                 titulo = "📈 *PREÇO SUBIU* (Odd Caiu)"
                 leitura = "💡 _O mercado está confiante. Alguém sabe de algo._"
@@ -208,6 +213,9 @@ class PolymarketMonitor:
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"📊 *Preço:* {movimento}\n"
                 f"💰 *Odd:* {odds}\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
+                f"💧 *Liquidez:* ${liquidez:,.0f}\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"{leitura}\n\n"
                 f"[👉 ABRIR NA POLYMARKET]({link})"
