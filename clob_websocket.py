@@ -121,9 +121,13 @@ class PolymarketMonitor:
 
         self.last_whale_alert_global = agora
 
-        # 🆕 PEGANDO VOLUME E LIQUIDEZ DO MERCADO
+        # 🆕 PEGANDO VOLUME, LIQUIDEZ E TIPO DE MERCADO
         volume_total = float(market.get("volume", 0) or 0)
         liquidez = float(market.get("liquidity", 0) or 0)
+        
+        # Extrai o tipo (moneyline, spreads, totals)
+        market_type = market.get("sportsMarketType", "Desconhecido").capitalize()
+        odd_label = "Odd de Vitória" if market_type == "Moneyline" else f"Odd ({market_type})"
 
         side_raw = data.get("side", "?")
         side_texto = "🟢 COMPRA (A Favor)" if side_raw == "BUY" else "🔴 VENDA (Contra)"
@@ -143,10 +147,11 @@ class PolymarketMonitor:
             f"━━━━━━━━━━━━━━━━━━\n"
             f"🏆 *Jogo:* {market['question']}\n"
             f"🎯 *Palpite:* `{outcome_name}`\n"
+            f"📌 *Tipo:* {market_type}\n"  # <-- NOVA LINHA AQUI
             f"🔄 *Ação:* {side_texto}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{valor_formatado}\n"
-            f"📊 *Preço:* {price:.2f} | *Odd:* {1/price:.2f}\n"
+            f"📊 *Preço:* {price:.2f} | *{odd_label}:* {1/price:.2f}\n" # <-- RÓTULO DINÂMICO AQUI
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
             f"💧 *Liquidez:* ${liquidez:,.0f}\n"
@@ -190,9 +195,13 @@ class PolymarketMonitor:
 
             link = self.gerar_link(market)
             
-            # 🆕 PEGANDO VOLUME E LIQUIDEZ DO MERCADO
+            # 🆕 PEGANDO VOLUME, LIQUIDEZ E TIPO DE MERCADO
             volume_total = float(market.get("volume", 0) or 0)
             liquidez = float(market.get("liquidity", 0) or 0)
+            
+            # Extrai o tipo (moneyline, spreads, totals)
+            market_type = market.get("sportsMarketType", "Desconhecido").capitalize()
+            odd_label = "Odd de Vitória" if market_type == "Moneyline" else f"Odd ({market_type})"
 
             if pct > 0:
                 titulo = "📈 *PREÇO SUBIU* (Odd Caiu)"
@@ -210,9 +219,10 @@ class PolymarketMonitor:
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🏆 *Jogo:* {market['question']}\n"
                 f"🎯 *Palpite:* `{outcome_name}`\n"
+                f"📌 *Tipo:* {market_type}\n"  # <-- NOVA LINHA AQUI
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"📊 *Preço:* {movimento}\n"
-                f"💰 *Odd:* {odds}\n"
+                f"💰 *{odd_label}:* {odds}\n" # <-- RÓTULO DINÂMICO AQUI
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
                 f"💧 *Liquidez:* ${liquidez:,.0f}\n"
