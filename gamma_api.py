@@ -4,20 +4,22 @@ import config
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
-# 🎯 IDs DE TAG CORRIGIDOS E CONFIRMADOS
-TAG_IDS = {
-    "NBA": "1",          # Tag principal de Esportes; o filtro de tipos refina para jogos
-    "Tênis": "864",      # ID confirmado para todos os mercados de tênis
-    "E-sports": "64",    # ID base para e-sports; pode ser necessário ajustar
-    "NFL": "450"         # Mantido, mas com cota menor
+# 🎯 CONFIGURAÇÃO CORRETA POR ESPORTE
+# NBA usa series_id. Tênis e E-sports usam tag_id.
+# O tag_id=100639 filtra apenas "jogos" (single games), ignorando futuros de temporada.
+ESPORTES = {
+    "NBA": {"param": "series_id", "id": "10345"},          # ID de série da NBA
+    "Tênis": {"param": "tag_id", "id": "864"},              # ID de tag para Tênis (ATP/WTA)
+    "E-sports": {"param": "tag_id", "id": "64"},            # ID de tag base para E-sports
+    "NFL": {"param": "tag_id", "id": "450"}                 # ID de tag para NFL
 }
 
-# 🎯 COTAS POR ESPORTE (ajuste como preferir)
+# 🎯 COTAS AJUSTADAS: Mais mercados para NBA, Tênis e E-sports
 LIMITES_POR_ESPORTE = {
-    "NBA": 100,          # Cota alta para NBA
-    "Tênis": 150,        # Cota muito alta para Tênis
-    "E-sports": 100,     # Cota alta para E-sports
-    "NFL": 30            # Cota menor para NFL
+    "NBA": 100,
+    "Tênis": 150,
+    "E-sports": 100,
+    "NFL": 30
 }
 
 # 🎯 TIPOS DE MERCADO: Foco em jogos, não em futuros
@@ -29,26 +31,34 @@ TIPOS_PERMITIDOS = [
 def fetch_active_markets():
     all_markets = []
     
-    for sport, tag_id in TAG_IDS.items():
+    for sport, dados in ESPORTES.items():
         limite = LIMITES_POR_ESPORTE.get(sport, 50)
         
+        # Monta os parâmetros base
         params = {
             "active": "true",
             "closed": "false",
             "limit": limite,
             "order": "volume24hr",
             "ascending": "false",
-            "tag_id": tag_id,
             "sports_market_types": TIPOS_PERMITIDOS,
-            "liquidity_num_min": 1000, # Reduzido para capturar mais mercados
+            "liquidity_num_min": 1000,
         }
+        
+        # Adiciona o parâmetro específico (series_id ou tag_id)
+        params[dados["param"]] = dados["id"]
+        
+        # 🎯 Adiciona o filtro de "jogos" para NBA e NFL (e outros que suportam)
+        # Para Tênis e E-sports, o tag_id base já deve trazer os jogos.
+        if sport in ["NBA", "NFL"]:
+            params["tag_id"] = "100639"  # Filtra apenas jogos individuais
         
         try:
             resp = requests.get(f"{GAMMA_BASE}/markets", params=params, timeout=10)
             resp.raise_for_status()
             markets = resp.json()
             all_markets.extend(markets)
-            print(f"   [+] {len(markets)} mercados encontrados para {sport} (tag: {tag_id})")
+            print(f"   [+] {len(markets)} mercados encontrados para {sport}")
         except requests.exceptions.RequestException as e:
             print(f"   [!] Erro ao buscar mercados para {sport}: {e}")
 
