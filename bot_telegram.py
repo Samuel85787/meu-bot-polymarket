@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 from gamma_api import fetch_active_markets
 from clob_websocket import PolymarketMonitor
-from odds_checker import check_arbitrage # <--- Importando a Odds Value
+from odds_checker import check_arbitrage
 
 monitor_ativo = False
 task_monitor = None
@@ -82,7 +82,9 @@ def escutar_telegram(loop):
                         if not monitor_ativo:
                             monitor_ativo = True
                             task_monitor = asyncio.run_coroutine_threadsafe(iniciar_monitor(), loop)
-                            enviar_mensagem("✅ *Monitor Ligado!*")
+                            # 🆕 Roda a Odds Value IMEDIATAMENTE ao dar /start
+                            asyncio.run_coroutine_threadsafe(check_arbitrage(), loop)
+                            enviar_mensagem("✅ *Monitor Ligado!* Buscando mercados e checando Odds Value...")
                         else:
                             enviar_mensagem("⚠️ O monitor já está rodando!")
                             
@@ -161,11 +163,12 @@ async def iniciar_monitor():
         monitor_ativo = False
 
 async def loop_odds_value():
-    """Roda a verificação de Odds Value a cada 6 horas (21600 segundos)"""
+    """Roda a verificação de Odds Value a cada 6 horas"""
     while True:
+        # 🆕 Espera 6 horas PRIMEIRO, para não rodar duas vezes no início
+        await asyncio.sleep(21600) 
         if monitor_ativo:
             await check_arbitrage()
-        await asyncio.sleep(21600)
 
 async def main():
     carregar_configuracoes()
@@ -176,7 +179,6 @@ async def main():
     thread_telegram = threading.Thread(target=escutar_telegram, args=(loop,), daemon=True)
     thread_telegram.start()
     
-    # Inicia o loop da Odds Value em background
     asyncio.create_task(loop_odds_value()) 
     
     enviar_mensagem("🤖 Bot iniciado! Mande /start para monitorar.")
