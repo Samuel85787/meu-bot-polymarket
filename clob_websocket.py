@@ -110,15 +110,15 @@ class PolymarketMonitor:
             return
 
         # ==========================================
-        # 1. DETECÇÃO DE OSCILAÇÃO (SÓ PRICE SUBINDO)
+        # 1. DETECÇÃO DE OSCILAÇÃO (APENAS ODD CAINDO)
         # ==========================================
         result = self.tracker.add_price(token_id, price)
         if result:
             event_type, old_price, new_price, pct = result
             
-            # 🛑 FILTRO MÁGICO: Se for menor ou igual a zero, ignora
+            # 🛑 SÓ PROCESSE SE O PREÇO SUBIR (ODD CAIR). Se pct < 0, ignora!
             if pct > 0:
-                if self.should_alert(f"spike_{market['slug']}", cooldown_minutes=5):
+                if self.should_alert(f"spike_{market['slug']}", cooldown_minutes=3):
                     link = self.gerar_link(market)
                     volume_total = float(market.get("volume", 0) or 0)
                     liquidez = float(market.get("liquidity", 0) or 0)
@@ -149,7 +149,7 @@ class PolymarketMonitor:
                     await send_alert(msg)
 
         # ==========================================
-        # 2. DETECÇÃO DE BALEIA (MANTIDO, CASO VOCÊ QUEIRA USAR)
+        # 2. DETECÇÃO DE BALEIA (WHALE ALERT)
         # ==========================================
         if not config.ENABLE_WHALE_ALERTS:
             return
@@ -198,8 +198,8 @@ class PolymarketMonitor:
             f"{valor_formatado}\n"
             f"📊 *Preço:* {price:.2f} | *{odd_label}:* {1/price:.2f}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📈 *Volume do Mercado:* {volume_total:,.0f}\n"
-            f"💧 *Liquidez:* {liquidez:,.0f}\n"
+            f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
+            f"💧 *Liquidez:* ${liquidez:,.0f}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{leitura}\n\n"
             f"[👉 ABRIR NA POLYMARKET]({link})"
