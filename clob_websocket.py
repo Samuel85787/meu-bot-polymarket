@@ -85,7 +85,6 @@ class PolymarketMonitor:
                         events = data if isinstance(data, list) else [data]
                         for ev in events:
                             et = ev.get("event_type")
-                            # 🔥 A CORREÇÃO ESTÁ AQUI: Só processa negociações reais (last_trade_price)
                             if et == "last_trade_price":
                                 await self.handle_trade(ev)
             
@@ -111,51 +110,46 @@ class PolymarketMonitor:
             return
 
         # ==========================================
-        # 1. DETECÇÃO DE OSCILAÇÃO (PRICE SPIKE)
+        # 1. DETECÇÃO DE OSCILAÇÃO (SÓ PRICE SUBINDO)
         # ==========================================
         result = self.tracker.add_price(token_id, price)
         if result:
             event_type, old_price, new_price, pct = result
             
-            # Cooldown independente para o spike
-            if self.should_alert(f"spike_{market['slug']}", cooldown_minutes=5):
-                link = self.gerar_link(market)
-                volume_total = float(market.get("volume", 0) or 0)
-                liquidez = float(market.get("liquidity", 0) or 0)
-                market_type = market.get("sportsMarketType", "Desconhecido").capitalize()
-                odd_label = "Odd de Vitória" if market_type == "Moneyline" else f"Odd ({market_type})"
+            # 🛑 FILTRO MÁGICO: Se for menor ou igual a zero, ignora
+            if pct > 0:
+                if self.should_alert(f"spike_{market['slug']}", cooldown_minutes=5):
+                    link = self.gerar_link(market)
+                    volume_total = float(market.get("volume", 0) or 0)
+                    liquidez = float(market.get("liquidity", 0) or 0)
+                    market_type = market.get("sportsMarketType", "Desconhecido").capitalize()
+                    odd_label = "Odd de Vitória" if market_type == "Moneyline" else f"Odd ({market_type})"
 
-                if pct > 0:
                     titulo = "📈 *PREÇO SUBIU* (Odd Caiu)"
                     leitura = "💡 _O mercado está confiante. Alguém sabe de algo._"
                     movimento = f"🔼 `{old_price:.2f} ➔ {new_price:.2f}`"
                     odds = f"📉 `{1/old_price:.2f} ➔ {1/new_price:.2f}`"
-                else:
-                    titulo = "📉 *PREÇO CAIU* (Odd Subiu)"
-                    leitura = "💡 _Desconto! O mercado desistiu, a odd está alta._"
-                    movimento = f"🔽 `{old_price:.2f} ➔ {new_price:.2f}`"
-                    odds = f"📈 `{1/old_price:.2f} ➔ {1/new_price:.2f}`"
-                    
-                msg = (
-                    f"{titulo}\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🏆 *Jogo:* {market['question']}\n"
-                    f"🎯 *Palpite:* `{outcome_name}`\n"
-                    f"📌 *Tipo:* {market_type}\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"📊 *Preço:* {movimento}\n"
-                    f"💰 *{odd_label}:* {odds}\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
-                    f"💧 *Liquidez:* ${liquidez:,.0f}\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"{leitura}\n\n"
-                    f"[👉 ABRIR NA POLYMARKET]({link})"
-                )
-                await send_alert(msg)
+                        
+                    msg = (
+                        f"{titulo}\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"🏆 *Jogo:* {market['question']}\n"
+                        f"🎯 *Palpite:* `{outcome_name}`\n"
+                        f"📌 *Tipo:* {market_type}\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"📊 *Preço:* {movimento}\n"
+                        f"💰 *{odd_label}:* {odds}\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
+                        f"💧 *Liquidez:* ${liquidez:,.0f}\n"
+                        f"━━━━━━━━━━━━━━━━━━\n"
+                        f"{leitura}\n\n"
+                        f"[👉 ABRIR NA POLYMARKET]({link})"
+                    )
+                    await send_alert(msg)
 
         # ==========================================
-        # 2. DETECÇÃO DE BALEIA (WHALE ALERT)
+        # 2. DETECÇÃO DE BALEIA (MANTIDO, CASO VOCÊ QUEIRA USAR)
         # ==========================================
         if not config.ENABLE_WHALE_ALERTS:
             return
@@ -170,7 +164,6 @@ class PolymarketMonitor:
         if agora - self.last_whale_alert_global < 600: 
             return
 
-        # Cooldown independente para a baleia
         if not self.should_alert(f"whale_{market['slug']}", cooldown_minutes=15):
             return
 
@@ -205,8 +198,8 @@ class PolymarketMonitor:
             f"{valor_formatado}\n"
             f"📊 *Preço:* {price:.2f} | *{odd_label}:* {1/price:.2f}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
-            f"💧 *Liquidez:* ${liquidez:,.0f}\n"
+            f"📈 *Volume do Mercado:* {volume_total:,.0f}\n"
+            f"💧 *Liquidez:* {liquidez:,.0f}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{leitura}\n\n"
             f"[👉 ABRIR NA POLYMARKET]({link})"
