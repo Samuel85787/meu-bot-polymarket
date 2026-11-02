@@ -110,14 +110,13 @@ class PolymarketMonitor:
             return
 
         # ==========================================
-        # 1. DETECÇÃO DE OSCILAÇÃO (APENAS ODD CAINDO)
+        # 1. DETECÇÃO DE OSCILAÇÃO (SÓ PREÇO SUBINDO / ODD CAINDO)
         # ==========================================
         result = self.tracker.add_price(token_id, price)
         if result:
             event_type, old_price, new_price, pct = result
             
-            # 🛑 SÓ PROCESSE SE O PREÇO SUBIR (ODD CAIR). Se pct < 0, ignora!
-            if pct > 0:
+            if pct > 0: # Só envia se o preço subiu (odd caiu)
                 if self.should_alert(f"spike_{market['slug']}", cooldown_minutes=3):
                     link = self.gerar_link(market)
                     volume_total = float(market.get("volume", 0) or 0)
@@ -149,15 +148,23 @@ class PolymarketMonitor:
                     await send_alert(msg)
 
         # ==========================================
-        # 2. DETECÇÃO DE BALEIA (WHALE ALERT)
+        # 2. DETECÇÃO DE BALEIA / INSIDER (SMART MONEY)
         # ==========================================
         if not config.ENABLE_WHALE_ALERTS:
             return
 
         size = float(data.get("size", 0) or 0)
         usd_value = size * price
+        liquidez = float(market.get("liquidity", 0) or 0)
         
-        if usd_value < config.MIN_BET_AMOUNT:
+        # Matemática do Insider
+        ratio_liquidez = (usd_value / liquidez) if liquidez > 0 else 0
+
+        is_big_bet = usd_value >= config.MIN_BET_AMOUNT
+        is_insider_bet = ratio_liquidez >= config.WHALE_LIQUIDITY_RATIO
+
+        # Se não for nem aposta grande e nem Insider, ignora
+        if not is_big_bet and not is_insider_bet:
             return
 
         agora = time.time()
@@ -170,7 +177,6 @@ class PolymarketMonitor:
         self.last_whale_alert_global = agora
 
         volume_total = float(market.get("volume", 0) or 0)
-        liquidez = float(market.get("liquidity", 0) or 0)
         market_type = market.get("sportsMarketType", "Desconhecido").capitalize()
         odd_label = "Odd de Vitória" if market_type == "Moneyline" else f"Odd ({market_type})"
 
@@ -178,7 +184,12 @@ class PolymarketMonitor:
         side_texto = "🟢 COMPRA (A Favor)" if side_raw == "BUY" else "🔴 VENDA (Contra)"
         link = self.gerar_link(market)
         
-        if usd_value >= config.MEGA_BET_AMOUNT:
+        # 🆕 FORMATO DO ALERTA (Diferencia Insider de Baleia Normal)
+        if is_insider_bet:
+            titulo = "🎯🔥 *ALERTA DE INSIDER (Baixa Liquidez)!* 🔥🎯"
+            leitura = "⚠️ _A aposta engoliu uma parte gigante do mercado. MUITO provável que seja informação interna._"
+            valor_formatado = f"💎 *${usd_value:,.2f}* ({ratio_liquidez*100:.1f}% da Liquidez)"
+        elif usd_value >= config.MEGA_BET_AMOUNT:
             titulo = "🚨🔥 *MEGA BALEIA NA ÁREA!* 🔥🚨"
             leitura = "⚠️ _Atenção: Volume fora do comum. Pode ser insider._"
             valor_formatado = f"💎 *${usd_value:,.2f}*"
@@ -199,7 +210,7 @@ class PolymarketMonitor:
             f"📊 *Preço:* {price:.2f} | *{odd_label}:* {1/price:.2f}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"📈 *Volume do Mercado:* ${volume_total:,.0f}\n"
-            f"💧 *Liquidez:* ${liquidez:,.0f}\n"
+            f"💧 *Liquidez Total:* ${liquidez:,.0f}\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"{leitura}\n\n"
             f"[👉 ABRIR NA POLYMARKET]({link})"
