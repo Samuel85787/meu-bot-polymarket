@@ -14,17 +14,17 @@ ESPORTES = {
     "VALORANT": {"tag_id": "101672"}
 }
 
-# 🎯 Cota de mercados por esporte
+# 🎯 Cotas para garantir que o tênis e e-sports não sejam engolidos
 LIMITES_POR_ESPORTE = {
     "NBA": 100,
-    "NFL": 30,
-    "Tênis ATP": 80,
-    "Tênis WTA": 80,
+    "NFL": 50,
+    "Tênis ATP": 100,
+    "Tênis WTA": 100,
     "CS2": 80,
     "VALORANT": 80
 }
 
-# 🎯 Foco exclusivo em moneyline (evita futuros e outros tipos)
+# 🎯 Foco exclusivo em Moneyline (evita odds erradas)
 TIPOS_PERMITIDOS = ["moneyline"]
 
 # 🎯 Tag de futebol para excluir (ID 100350)
@@ -42,10 +42,10 @@ def fetch_active_markets():
             "limit": limite,
             "order": "volume24hr",
             "ascending": "false",
-            "tag_id": dados["tag_id"],          # Tag específica do esporte
+            "tag_id": dados["tag_id"],
             "sports_market_types": TIPOS_PERMITIDOS,
-            "liquidity_num_min": 1000,
-            "exclude_tag_id": TAG_FUTEBOL      # Exclui futebol
+            "liquidity_num_min": 1000, # Baixo o suficiente para pegar jogos ocultos de tênis
+            "exclude_tag_id": TAG_FUTEBOL
         }
         
         try:
@@ -60,7 +60,7 @@ def fetch_active_markets():
     # Remove duplicatas
     unique_markets = list({m['id']: m for m in all_markets}.values())
     
-    # 🛡️ Filtro de segurança: remove qualquer mercado que ainda mencione futebol
+    # Filtro de segurança para futebol
     filtrados = []
     for m in unique_markets:
         titulo = m.get("question", "").lower()
@@ -68,7 +68,6 @@ def fetch_active_markets():
             continue
         filtrados.append(m)
     
-    # Processa os campos JSON
     for m in filtrados:
         m["clobTokenIds"] = json.loads(m.get("clobTokenIds") or "[]")
         m["outcomes"] = json.loads(m.get("outcomes") or "[]")
