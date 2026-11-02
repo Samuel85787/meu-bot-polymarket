@@ -10,27 +10,23 @@ SPORTS_KEYS = {
 }
 
 async def check_arbitrage(): 
-    """Busca Odds Value (+EV) comparando a Pinnacle com a Polymarket"""
+    """Busca Odds Value (+EV) com cruzamento estrito de times"""
     if config.ODDS_API_KEY == "SUA_CHAVE_AQUI" or not config.ODDS_API_KEY:
-        print("⚠️ Chave da Odds API não configurada no config.py.")
         return
 
     print("\n🔍 Iniciando verificação de Odds Value (Pinnacle vs Polymarket)...")
     
     try:
         pm_markets = fetch_active_markets()
-        print(f"📊 {len(pm_markets)} mercados da Polymarket carregados para comparação.")
     except Exception as e:
         print(f"❌ Erro ao buscar mercados PM: {e}")
         return
 
     pm_dict = {}
     for m in pm_markets:
-        question = m.get("question", "").lower()
-        pm_dict[question] = m
+        pm_dict[m.get("question", "").lower()] = m
 
     for sport_key, sport_name in SPORTS_KEYS.items():
-        print(f"📡 Buscando odds da Pinnacle para {sport_name}...")
         url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
         params = {
             "apiKey": config.ODDS_API_KEY,
@@ -41,15 +37,10 @@ async def check_arbitrage():
         
         try:
             resp = requests.get(url, params=params, timeout=10)
-            remaining = resp.headers.get("x-requests-remaining", "Desconhecido")
-            print(f"✅ Resposta recebida. Requisições restantes na API: {remaining}")
-            
             if resp.status_code != 200:
-                print(f"❌ Erro na API Odds ({sport_name}): {resp.status_code} - {resp.text}")
                 continue
                 
             odds_data = resp.json()
-            print(f"   [+] {len(odds_data)} jogos encontrados na Pinnacle para {sport_name}")
             
             for game in odds_data:
                 if not game.get("bookmakers"):
@@ -58,25 +49,37 @@ async def check_arbitrage():
                 pinnacle = game["bookmakers"][0]
                 market = pinnacle["markets"][0]
                 
-                for outcome in market["outcomes"]:
-                    team_name = outcome["name"].lower()
-                    pinnacle_odds = float(outcome["price"])
-                    pinnacle_prob = 1 / pinnacle_odds
-                    
-                    # Pega a última palavra do time (ex: "seahawks")
-                    team_keyword = team_name.split()[-1] 
-                    
-                    for question, pm_market in pm_dict.items():
-                        if team_keyword in question:
+                # Pega os nomes dos times na Pinnacle
+                home_team = game.get("home_team", "").lower()
+                away_team = game.get("away_team", "").lower()
+                
+                # Pega a última palavra do nome do time (ex: "commanders", "eagles")
+                home_kw = home_team.split()[-1]
+                away_kw = away_team.split()[-1]
+
+                for question, pm_market in pm_dict.items():
+                    # 🛑 FILTRO ESTRITO: O jogo da PM precisa ter AMBOS os times
+                    if home_kw in question and away_kw in question:
+                        
+                        # Agora vamos analisar as odds para cada time
+                        for outcome in market["outcomes"]:
+                            team_name = outcome["name"].lower()
+                            pinnacle_odds = float(outcome["price"])
+                            pinnacle_prob = 1 / pinnacle_odds
                             
-                            # 🆕 A CORREÇÃO ESTÁ AQUI: Achar o índice exato do time
+                            # Descobre qual time é esse (casa ou fora)
+                            is_home = home_kw in team_name
+                            is_away = away_kw in team_name
+                            
+                            # 🆕 BUSCA O PREÇO EXATO DO TIME NA POLYMARKET
                             pm_price = None
                             for i, pm_outcome_name in enumerate(pm_market.get("outcomes", [])):
-                                if team_keyword in pm_outcome_name.lower():
+                                # Se o nome do time da PM for igual ao nome do time da Pinnacle
+                                if (is_home and home_kw in pm_outcome_name.lower()) or \
+                                   (is_away and away_kw in pm_outcome_name.lower()):
                                     pm_price = float(pm_market["outcomePrices"][i])
                                     break
                             
-                            # Se não achou o time específico, pula
                             if pm_price is None:
                                 continue
                             
@@ -98,7 +101,7 @@ async def check_arbitrage():
                                     f"[👉 ABRIR NA POLYMARKET]({link})"
                                 )
                                 await send_alert(msg)
-                                print(f"🚀 Oportunidade encontrada: {outcome['name']} (+{((pinnacle_prob - pm_price) * 100):.1f}%)")
+                                print(f"🚀 Oportunidade: {outcome['name']} (Odd PM {1/pm_price:.2f} vs Odd Pinnacle {pinnacle_odds:.2f})")
                                 break 
                                 
         except Exception as e:
@@ -106,4 +109,4 @@ async def check_arbitrage():
             
         await asyncio.sleep(2)
     
-    print("🏁 Verificação de Odds Value finalizada.\n")
+    print("🏁 Verificação finalizada.\n")
