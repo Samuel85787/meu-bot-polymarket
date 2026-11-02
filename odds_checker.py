@@ -4,7 +4,6 @@ import asyncio
 from telegram_notifier import send_alert
 from gamma_api import fetch_active_markets
 
-# 🎯 Chaves CORRETAS da The Odds API (Tênis não tem chave genérica)
 SPORTS_KEYS = {
     "basketball_nba": "NBA",
     "americanfootball_nfl": "NFL"
@@ -35,15 +34,13 @@ async def check_arbitrage():
         url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
         params = {
             "apiKey": config.ODDS_API_KEY,
-            "regions": "eu", # Pinnacle costuma estar na Europa
+            "regions": "eu",
             "bookmakers": "pinnacle",
             "markets": "h2h"
         }
         
         try:
             resp = requests.get(url, params=params, timeout=10)
-            
-            # Mostra o limite de requisições restantes no log
             remaining = resp.headers.get("x-requests-remaining", "Desconhecido")
             print(f"✅ Resposta recebida. Requisições restantes na API: {remaining}")
             
@@ -66,12 +63,22 @@ async def check_arbitrage():
                     pinnacle_odds = float(outcome["price"])
                     pinnacle_prob = 1 / pinnacle_odds
                     
-                    # Pega a última palavra do time (ex: "lakers" de "los angeles lakers")
+                    # Pega a última palavra do time (ex: "seahawks")
                     team_keyword = team_name.split()[-1] 
                     
                     for question, pm_market in pm_dict.items():
                         if team_keyword in question:
-                            pm_price = float(pm_market["outcomePrices"][0])
+                            
+                            # 🆕 A CORREÇÃO ESTÁ AQUI: Achar o índice exato do time
+                            pm_price = None
+                            for i, pm_outcome_name in enumerate(pm_market.get("outcomes", [])):
+                                if team_keyword in pm_outcome_name.lower():
+                                    pm_price = float(pm_market["outcomePrices"][i])
+                                    break
+                            
+                            # Se não achou o time específico, pula
+                            if pm_price is None:
+                                continue
                             
                             # 🎯 FILTRO: 5% de vantagem
                             if pm_price < (pinnacle_prob - 0.05): 
