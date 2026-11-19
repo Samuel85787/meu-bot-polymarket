@@ -1,6 +1,11 @@
 import json
 import requests
+import logging
+from typing import List, Dict, Any
+
 import config
+
+logger = logging.getLogger(__name__)
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
@@ -30,7 +35,13 @@ TIPOS_PERMITIDOS = ["moneyline"]
 # 🎯 Tag de futebol para excluir (ID 100350)
 TAG_FUTEBOL = "100350"
 
-def fetch_active_markets():
+def fetch_active_markets() -> List[Dict[str, Any]]:
+    """
+    Busca mercados ativos de múltiplos esportes.
+    
+    Returns:
+        List[Dict]: Lista de mercados com informações completas
+    """
     all_markets = []
     
     for sport, dados in ESPORTES.items():
@@ -44,7 +55,7 @@ def fetch_active_markets():
             "ascending": "false",
             "tag_id": dados["tag_id"],
             "sports_market_types": TIPOS_PERMITIDOS,
-            "liquidity_num_min": 1000, # Baixo o suficiente para pegar jogos ocultos de tênis
+            "liquidity_num_min": 1000,  # Baixo o suficiente para pegar jogos ocultos de tênis
             "exclude_tag_id": TAG_FUTEBOL
         }
         
@@ -53,12 +64,15 @@ def fetch_active_markets():
             resp.raise_for_status()
             markets = resp.json()
             all_markets.extend(markets)
-            print(f"   [+] {len(markets)} mercados encontrados para {sport}")
+            logger.info(f"   [+] {len(markets)} mercados encontrados para {sport}")
+        except requests.exceptions.Timeout:
+            logger.error(f"   [!] Timeout ao buscar mercados para {sport}")
         except requests.exceptions.RequestException as e:
-            print(f"   [!] Erro ao buscar mercados para {sport}: {e}")
+            logger.error(f"   [!] Erro ao buscar mercados para {sport}: {type(e).__name__}: {e}")
 
     # Remove duplicatas
     unique_markets = list({m['id']: m for m in all_markets}.values())
+    logger.info(f"📊 Total de {len(unique_markets)} mercados únicos após remoção de duplicatas")
     
     # Filtro de segurança para futebol
     filtrados = []
@@ -68,9 +82,16 @@ def fetch_active_markets():
             continue
         filtrados.append(m)
     
+    logger.info(f"📊 {len(filtrados)} mercados após filtrar futebol")
+    
+    # Parseia dados JSON
     for m in filtrados:
-        m["clobTokenIds"] = json.loads(m.get("clobTokenIds") or "[]")
-        m["outcomes"] = json.loads(m.get("outcomes") or "[]")
-        m["outcomePrices"] = json.loads(m.get("outcomePrices") or "[]")
+        try:
+            m["clobTokenIds"] = json.loads(m.get("clobTokenIds") or "[]")
+            m["outcomes"] = json.loads(m.get("outcomes") or "[]")
+            m["outcomePrices"] = json.loads(m.get("outcomePrices") or "[]")
+        except json.JSONDecodeError as e:
+            logger.warning(f"Erro ao parsear JSON para mercado {m.get('id')}: {e}")
+            continue
         
     return filtrados
