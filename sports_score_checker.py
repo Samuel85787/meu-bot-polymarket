@@ -1,43 +1,73 @@
 import asyncio
 import json
 import websockets
-import config
+import logging
+from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 SPORTS_WS_URL = "wss://sports-api.polymarket.com/ws"
 
 # Cache global: mapeia o "gameId" para um dicionário com placar e status
-placares = {}
+placares: Dict[str, Dict] = {}
 
 async def conectar_sports_ws():
-    """Conecta ao WebSocket de esportes e mantém o cache de placares atualizado."""
+    """
+    Conecta ao WebSocket de esportes ao vivo e mantém o cache de placares atualizado.
+    """
     while True:
         try:
             async with websockets.connect(SPORTS_WS_URL, ping_interval=20) as ws:
-                print("🏟️ Conectado ao feed de esportes ao vivo.")
+                logger.info("🏟️ Conectado ao feed de esportes ao vivo.")
                 async for mensagem in ws:
                     try:
                         data = json.loads(mensagem)
                     except json.JSONDecodeError:
+                        logger.warning("JSON inválido recebido no feed de esportes")
                         continue
 
-                    # A mensagem de atualização de resultado tem a estrutura:
-                    # { "type": "sports_result_update", ... }
+                    # Processa mensagens de atualização de resultado
                     if data.get("type") == "sports_result_update":
-                        game_id = data.get("gameId")
-                        if game_id:
-                            placares[game_id] = {
-                                "score": data.get("score", ""),
-                                "status": data.get("status", ""),
-                                "live": data.get("live", False),
-                                "ended": data.get("ended", False),
-                                "period": data.get("period", ""),
-                                "homeTeam": data.get("homeTeam", ""),
-                                "awayTeam": data.get("awayTeam", ""),
-                            }
+                        await processar_update_esportes(data)
+        
+        except websockets.exceptions.ConnectionClosed:
+            logger.warning("⚠️ Conexão WebSocket de esportes fechada. Reconectando em 5s...")
+            await asyncio.sleep(5)
         except Exception as e:
-            print(f"⚠️ Conexão com feed de esportes caiu: {e}. Reconectando em 5s...")
+            logger.error(f"⚠️ Erro na conexão de esportes: {type(e).__name__}: {e}. Reconectando em 5s...")
             await asyncio.sleep(5)
 
-def obter_placar(game_id: str):
-    """Retorna o placar do jogo ou None se não encontrado."""
+async def processar_update_esportes(data: Dict) -> None:
+    """
+    Processa e armazena atualizações de esportes.
+    
+    Args:
+        data: Dados da atualização de esportes
+    """
+    try:
+        game_id = data.get("gameId")
+        if game_id:
+            placares[game_id] = {
+                "score": data.get("score", ""),
+                "status": data.get("status", ""),
+                "live": data.get("live", False),
+                "ended": data.get("ended", False),
+                "period": data.get("period", ""),
+                "homeTeam": data.get("homeTeam", ""),
+                "awayTeam": data.get("awayTeam", ""),
+            }
+            logger.debug(f"📊 Placar atualizado para jogo {game_id}")
+    except Exception as e:
+        logger.error(f"Erro ao processar update de esportes: {type(e).__name__}: {e}")
+
+def obter_placar(game_id: str) -> Optional[Dict]:
+    """
+    Retorna o placar do jogo ou None se não encontrado.
+    
+    Args:
+        game_id: ID do jogo
+    
+    Returns:
+        Dict com informações do placar ou None
+    """
     return placares.get(game_id)
