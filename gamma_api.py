@@ -1,97 +1,142 @@
 import json
-import requests
 import logging
-from typing import List, Dict, Any
 
+import aiohttp
 import config
 
 logger = logging.getLogger(__name__)
 
-GAMMA_BASE = "https://gamma-api.polymarket.com"
-
-# 🎯 IDs de tag corretos para cada esporte
-ESPORTES = {
-    "NBA": {"tag_id": "745"},        # Tag específica da NBA
-    "NFL": {"tag_id": "450"},
-    "Tênis ATP": {"tag_id": "101232"},
-    "Tênis WTA": {"tag_id": "102123"},
-    "CS2": {"tag_id": "100780"},
-    "VALORANT": {"tag_id": "101672"}
-}
-
-# 🎯 Cotas para garantir que o tênis e e-sports não sejam engolidos
 LIMITES_POR_ESPORTE = {
     "NBA": 100,
     "NFL": 50,
     "Tênis ATP": 100,
     "Tênis WTA": 100,
     "CS2": 80,
-    "VALORANT": 80
+    "VALORANT": 80,
 }
 
-# 🎯 Foco exclusivo em Moneyline (evita odds erradas)
-TIPOS_PERMITIDOS = ["moneyline"]
 
-# 🎯 Tag de futebol para excluir (ID 100350)
-TAG_FUTEBOL = "100350"
+def lista_json(valor):
+    if isinstance(valor, list):
+        return valor
 
-def fetch_active_markets() -> List[Dict[str, Any]]:
-    """
-    Busca mercados ativos de múltiplos esportes.
-    
-    Returns:
-        List[Dict]: Lista de mercados com informações completas
-    """
-    all_markets = []
-    
-    for sport, dados in ESPORTES.items():
-        limite = LIMITES_POR_ESPORTE.get(sport, 50)
-        
-        params = {
-            "active": "true",
-            "closed": "false",
-            "limit": limite,
-            "order": "volume24hr",
-            "ascending": "false",
-            "tag_id": dados["tag_id"],
-            "sports_market_types": TIPOS_PERMITIDOS,
-            "liquidity_num_min": 1000,  # Baixo o suficiente para pegar jogos ocultos de tênis
-            "exclude_tag_id": TAG_FUTEBOL
-        }
-        
-        try:
-            resp = requests.get(f"{GAMMA_BASE}/markets", params=params, timeout=10)
-            resp.raise_for_status()
-            markets = resp.json()
-            all_markets.extend(markets)
-            logger.info(f"   [+] {len(markets)} mercados encontrados para {sport}")
-        except requests.exceptions.Timeout:
-            logger.error(f"   [!] Timeout ao buscar mercados para {sport}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"   [!] Erro ao buscar mercados para {sport}: {type(e).__name__}: {e}")
+    if isinstance(valor, str):
+        resultado = json.loads(valor)
+        if isinstance(resultado, list):
+            return resultado
 
-    # Remove duplicatas
-    unique_markets = list({m['id']: m for m in all_markets}.values())
-    logger.info(f"📊 Total de {len(unique_markets)} mercados únicos após remoção de duplicatas")
-    
-    # Filtro de segurança para futebol
-    filtrados = []
-    for m in unique_markets:
-        titulo = m.get("question", "").lower()
-        if "soccer" in titulo or "football" in titulo:
-            continue
-        filtrados.append(m)
-    
-    logger.info(f"📊 {len(filtrados)} mercados após filtrar futebol")
-    
-    # Parseia dados JSON
-    for m in filtrados:
-        try:
-            m["clobTokenIds"] = json.loads(m.get("clobTokenIds") or "[]")
-            m["outcomes"] = json.loads(m.get("outcomes") or "[]")
-            m["outcomePrices"] = json.loads(m.get("outcomePrices") or "[]")
-        except json.JSONDecodeError as e:
-            logger.warning(f"Erro ao parsear JSON para mercado {m.get('id')}: {e}")
-            continue
-        
-    return filtrados
+    return []
+
+
+def normalizar_mercado(original, esporte):
+    mercado = dict(original)
+
+    if mercado.get("closed") or not mercado.get("active", True):
+        return None
+
+    # Confere também localmente, não apenas pelo filtro da API.
+    tipo = str(mercado.get("sportsMarketType") or "").lower()
+    if tipo != "moneyline":
+        return None
+
+    tokens = lista_json(mercado.get("clobTokenIds"))
+    outcomes = lista_json(mercado.get("outcomes"))
+    prices = lista_json(mercado.get("outcomePrices"))
+
+    if not tokens or len(tokens) != len(outcomes):
+        return None
+
+    mercado["clobTokenIds"] = [str(token) for token in tokens]
+    mercado["outcomes"] = [str(outcome) for outcome in outcomes]
+    mercado["outcomePrices"] = prices
+    mercado["_sport"] = esporte
+
+    return mercado
+
+
+async def fetch_active_markets(session):
+    encontrados = {}
+
+    for esporte, tag in config.SPORT_TAGS.items():
+        limite = LIMITES_POR_ESPORTE.get(esporte, 50)
+        recebidos = 0
+
+        # Paginação limitada para evitar consultas sem fim.
+        for pagina in range(5):
+            params = {
+                "active": "true",
+                "closed": "false",
+                "limit": 100,
+                "offset": pagina * 100,
+                "order": "volume24hr",
+                "ascending": "false",
+                "tag_id": tag,
+                "sports_market_types": "moneyline",
+                "liquidity_num_min": 1000,
+            }
+
+            try:
+                async with session.get(
+                    f"{config.GAMMA_BASE_URL}/markets",
+                    params=params,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            "Gamma: HTTP %s para %s",
+                            resp.status,
+                            esporte,
+                        )
+                        break
+
+                    lote = await resp.json()
+
+                if not isinstance(lote, list):
+                    logger.warning("Resposta inesperada da Gamma para %s", esporte)
+                    break
+
+                for original in lote:
+                    if not isinstance(original, dict):
+                        continue
+
+                    try:
+                        mercado = normalizar_mercado(original, esporte)
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            "Mercado inválido ignorado: %s",
+                            original.get("id"),
+                        )
+                        continue
+
+                    if mercado is None:
+                        continue
+
+                    identificador = str(
+                        mercado.get("id") or mercado.get("conditionId") or ""
+                    )
+
+                    if identificador and identificador not in encontrados:
+                        encontrados[identificador] = mercado
+                        recebidos += 1
+
+                    if recebidos >= limite:
+                        break
+
+                if recebidos >= limite or len(lote) < 100:
+                    break
+
+            except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
+                logger.warning(
+                    "Falha ao buscar %s: %s",
+                    esporte,
+                    type(exc).__name__,
+                )
+                break
+
+        logger.info("%s: %s mercados válidos novos", esporte, recebidos)
+
+    mercados = list(encontrados.values())
+    mercados = mercados[:config.MAX_MARKETS_TO_MONITOR]
+
+    logger.info("Total: %s mercados selecionados", len(mercados))
+    return mercados
