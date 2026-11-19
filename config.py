@@ -23,8 +23,8 @@ def booleano(nome, padrao=False):
     return valor in {"true", "1", "yes"}
 
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9010673985:AAHCbpzfSuSt9QT_tAj5_BOWX6jx9II9qIo").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1829037660").strip()
 
 # Opcional: útil para restringir comandos dentro de um grupo.
 TELEGRAM_USER_ID = os.getenv("TELEGRAM_USER_ID", "").strip()
