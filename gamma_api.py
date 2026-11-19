@@ -9,24 +9,23 @@ logger = logging.getLogger(__name__)
 LIMITES_POR_ESPORTE = {
     "NBA": 100,
     "NFL": 50,
-    "Tênis ATP": 100,
-    "Tênis WTA": 100,
+    "Tenis ATP": 100,
+    "Tenis WTA": 100,
     "CS2": 80,
     "VALORANT": 80,
 }
 
-
 def lista_json(valor):
     if isinstance(valor, list):
         return valor
-
     if isinstance(valor, str):
-        resultado = json.loads(valor)
-        if isinstance(resultado, list):
-            return resultado
-
+        try:
+            resultado = json.loads(valor)
+            if isinstance(resultado, list):
+                return resultado
+        except:
+            pass
     return []
-
 
 def normalizar_mercado(original, esporte):
     mercado = dict(original)
@@ -34,7 +33,6 @@ def normalizar_mercado(original, esporte):
     if mercado.get("closed") or not mercado.get("active", True):
         return None
 
-    # Confere também localmente, não apenas pelo filtro da API.
     tipo = str(mercado.get("sportsMarketType") or "").lower()
     if tipo != "moneyline":
         return None
@@ -53,15 +51,13 @@ def normalizar_mercado(original, esporte):
 
     return mercado
 
-
-async def fetch_active_markets(session):
+async def fetch_active_markets():
     encontrados = {}
 
     for esporte, tag in config.SPORT_TAGS.items():
         limite = LIMITES_POR_ESPORTE.get(esporte, 50)
         recebidos = 0
 
-        # Paginação limitada para evitar consultas sem fim.
         for pagina in range(5):
             params = {
                 "active": "true",
@@ -76,23 +72,20 @@ async def fetch_active_markets(session):
             }
 
             try:
-                async with session.get(
-                    f"{config.GAMMA_BASE_URL}/markets",
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=20),
-                ) as resp:
-                    if resp.status != 200:
-                        logger.warning(
-                            "Gamma: HTTP %s para %s",
-                            resp.status,
-                            esporte,
-                        )
-                        break
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        config.GAMMA_BASE_URL + "/markets",
+                        params=params,
+                        timeout=aiohttp.ClientTimeout(total=20),
+                    ) as resp:
+                        if resp.status != 200:
+                            logger.warning("Gamma HTTP " + str(resp.status) + " para " + esporte)
+                            break
 
-                    lote = await resp.json()
+                        lote = await resp.json()
 
                 if not isinstance(lote, list):
-                    logger.warning("Resposta inesperada da Gamma para %s", esporte)
+                    logger.warning("Resposta inesperada Gamma para " + esporte)
                     break
 
                 for original in lote:
@@ -102,18 +95,13 @@ async def fetch_active_markets(session):
                     try:
                         mercado = normalizar_mercado(original, esporte)
                     except (ValueError, TypeError):
-                        logger.warning(
-                            "Mercado inválido ignorado: %s",
-                            original.get("id"),
-                        )
+                        logger.warning("Mercado invalido: " + str(original.get("id")))
                         continue
 
                     if mercado is None:
                         continue
 
-                    identificador = str(
-                        mercado.get("id") or mercado.get("conditionId") or ""
-                    )
+                    identificador = str(mercado.get("id") or mercado.get("conditionId") or "")
 
                     if identificador and identificador not in encontrados:
                         encontrados[identificador] = mercado
@@ -126,17 +114,13 @@ async def fetch_active_markets(session):
                     break
 
             except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
-                logger.warning(
-                    "Falha ao buscar %s: %s",
-                    esporte,
-                    type(exc).__name__,
-                )
+                logger.warning("Falha " + esporte + ": " + str(type(exc).__name__))
                 break
 
-        logger.info("%s: %s mercados válidos novos", esporte, recebidos)
+        logger.info(esporte + ": " + str(recebidos) + " mercados")
 
     mercados = list(encontrados.values())
     mercados = mercados[:config.MAX_MARKETS_TO_MONITOR]
 
-    logger.info("Total: %s mercados selecionados", len(mercados))
+    logger.info("Total: " + str(len(mercados)) + " mercados")
     return mercados
