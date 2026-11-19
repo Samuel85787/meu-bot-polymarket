@@ -27,7 +27,7 @@ def teams_match(home_team, away_team, question):
     return home_kw in q and away_kw in q
 
 async def check_arbitrage():
-    if not config.ODDS_API_KEY or config.ODDS_API_KEY == "SUA_CHAVE_AQUI":
+    if not config.ODDS_API_KEY or config.ODDS_API_KEY == "b197e7f30e189f120132c839abfd1409":
         logger.warning("ODDS_API_KEY nao configurada")
         return
 
