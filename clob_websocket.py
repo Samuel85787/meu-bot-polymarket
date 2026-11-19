@@ -1,6 +1,5 @@
 import asyncio
 import datetime
-import html
 import json
 import logging
 import math
@@ -69,10 +68,10 @@ class PolymarketMonitor:
         if events and isinstance(events[0], dict):
             event_slug = events[0].get("slug")
             if event_slug:
-                return f"{config.POLYMARKET_BASE_URL}/event/{event_slug}"
+                return config.POLYMARKET_BASE_URL + "/event/" + event_slug
         market_slug = market.get("slug")
         if market_slug:
-            return f"{config.POLYMARKET_BASE_URL}/market/{market_slug}"
+            return config.POLYMARKET_BASE_URL + "/market/" + market_slug
         return config.POLYMARKET_BASE_URL
 
     def parse_float(self, value, default=0.0):
@@ -95,19 +94,15 @@ class PolymarketMonitor:
 
     def side_label(self, side_raw):
         if str(side_raw).upper() == "BUY":
-            return "COMPRA (A Favor)"
+            return "COMPRA"
         if str(side_raw).upper() == "SELL":
-            return "VENDA (Contra)"
+            return "VENDA"
         return "Desconhecido"
 
     async def run(self):
         while True:
             try:
-                async with websockets.connect(
-                    WS_URL,
-                    ping_interval=20,
-                    close_timeout=10,
-                ) as ws:
+                async with websockets.connect(WS_URL, ping_interval=20, close_timeout=10) as ws:
                     assets = list(self.token_to_market.keys())
                     sub_msg = {
                         "type": "market",
@@ -115,7 +110,7 @@ class PolymarketMonitor:
                         "initial_dump": True,
                     }
                     await ws.send(json.dumps(sub_msg))
-                    logger.info("Conectado ao CLOB. Monitorando " + str(len(assets)) + " tokens.")
+                    logger.info("Conectado ao CLOB")
                     self.connected = True
 
                     async for raw in ws:
@@ -132,11 +127,11 @@ class PolymarketMonitor:
                                 await self.handle_trade(ev)
 
             except websockets.exceptions.ConnectionClosed:
-                logger.warning("Conexao WebSocket fechada. Reconectando em 5s...")
+                logger.warning("Conexao WebSocket fechada")
                 self.connected = False
                 await asyncio.sleep(5)
             except Exception as e:
-                logger.error("Erro na conexao: " + str(type(e).__name__) + ": " + str(e))
+                logger.error("Erro: " + str(e))
                 self.connected = False
                 await asyncio.sleep(5)
 
@@ -161,14 +156,15 @@ class PolymarketMonitor:
             if result:
                 event_type, old_price, new_price, pct = result
                 if pct > 0:
-                    if self.should_alert("spike_" + market.get("slug", ""), config.SPIKE_COOLDOWN_SECONDS):
+                    slug = market.get("slug", "unknown")
+                    if self.should_alert("spike_" + slug, config.SPIKE_COOLDOWN_SECONDS):
                         await self.enviar_alerta_oscilacao(market, outcome_name, old_price, new_price, pct)
 
             if config.ENABLE_WHALE_ALERTS:
                 await self.detectar_baleia(data, market, outcome_name, price)
 
         except Exception as e:
-            logger.error("Erro ao processar trade: " + str(type(e).__name__) + ": " + str(e))
+            logger.error("Erro trade: " + str(e))
 
     async def enviar_alerta_oscilacao(self, market, outcome_name, old_price, new_price, pct):
         try:
@@ -178,12 +174,72 @@ class PolymarketMonitor:
             market_type, odd_label = self.market_type_label(market)
             question = market.get("question", "Mercado desconhecido")
 
-            msg = (
-                "PRECO SUBIU (Odd Caiu)\n"
-                "Jogo: " + question + "\n"
-                "Palpite: " + outcome_name + "\n"
-                "Tipo: " + market_type + "\n"
-                "Preco: " + str(round(old_price, 4)) + " -> " + str(round(new_price, 4)) + "\n"
-                "Odd: " + str(round(1/old_price, 2)) + " -> " + str(round(1/new_price, 2)) + "\n"
-                "Oscilacao: +" + str(round(pct*100, 2)) + "%\n"
-                <span class="ml-2" /><span data-testid="markdown-streaming-circle" class="inline-block w-3 h-3 rounded-full bg-neutral-a12 align-middle mb-[0.1rem]" />
+            msg_text = "PRECO SUBIU\n"
+            msg_text += "Jogo: " + question + "\n"
+            msg_text += "Palpite: " + outcome_name + "\n"
+            msg_text += "Preco: " + str(round(old_price, 4)) + " -> " + str(round(new_price, 4)) + "\n"
+            msg_text += "Oscilacao: " + str(round(pct * 100, 2)) + "%\n"
+            msg_text += "Volume: $" + str(int(volume_total)) + "\n"
+            msg_text += "Link: " + link
+
+            await send_alert(msg_text)
+        except Exception as e:
+            logger.error("Erro alerta oscilacao: " + str(e))
+
+    async def detectar_baleia(self, data, market, outcome_name, price):
+        try:
+            size = self.parse_float(data.get("size", 0))
+            usd_value = size * price
+            liquidez = self.parse_float(market.get("liquidity", 0))
+
+            ratio_liquidez = (usd_value / liquidez) if liquidez > 0 else 0
+
+            is_big_bet = usd_value >= config.MIN_BET_AMOUNT
+            is_insider_bet = ratio_liquidez >= config.WHALE_LIQUIDITY_RATIO
+
+            if not is_big_bet and not is_insider_bet:
+                return
+
+            agora = time.time()
+            if agora - self.last_whale_alert_global < config.WHALE_COOLDOWN_SECONDS:
+                return
+
+            slug = market.get("slug", "unknown")
+            if not self.should_alert("whale_" + slug, config.WHALE_COOLDOWN_SECONDS):
+                return
+
+            self.last_whale_alert_global = agora
+
+            placar = obter_placar_mercado(market)
+            await self.enviar_alerta_baleia(market, outcome_name, price, data.get("side", "?"), usd_value, placar)
+
+        except Exception as e:
+            logger.error("Erro baleia: " + str(e))
+
+    async def enviar_alerta_baleia(self, market, outcome_name, price, side_raw, usd_value, placar):
+        try:
+            volume_total = self.parse_float(market.get("volume", 0))
+            liquidez = self.parse_float(market.get("liquidity", 0))
+            market_type, odd_label = self.market_type_label(market)
+            side_texto = self.side_label(side_raw)
+            link = self.gerar_link(market)
+            question = market.get("question", "Mercado desconhecido")
+
+            if usd_value >= config.MEGA_BET_AMOUNT:
+                titulo = "MEGA BALEIA"
+            else:
+                titulo = "Aposta Grande"
+
+            msg_text = titulo + "\n"
+            msg_text += "Jogo: " + question + "\n"
+            msg_text += "Palpite: " + outcome_name + "\n"
+            msg_text += "Acao: " + side_texto + "\n"
+            msg_text += "Valor: $" + str(round(usd_value, 2)) + "\n"
+            msg_text += "Preco: " + str(round(price, 4)) + "\n"
+            msg_text += "Volume: $" + str(int(volume_total)) + "\n"
+            msg_text += "Liquidez: $" + str(int(liquidez)) + "\n"
+            msg_text += "Link: " + link
+
+            await send_alert(msg_text)
+        except Exception as e:
+            logger.error("Erro alerta baleia: " + str(e))
