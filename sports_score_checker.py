@@ -1,73 +1,141 @@
 import asyncio
 import json
-import websockets
 import logging
-from typing import Dict, Optional
+import time
+
+import websockets
 
 logger = logging.getLogger(__name__)
 
 SPORTS_WS_URL = "wss://sports-api.polymarket.com/ws"
 
-# Cache global: mapeia o "gameId" para um dicionário com placar e status
-placares: Dict[str, Dict] = {}
+placares = {}
+conectado = False
+CACHE_TTL = 21600
+
+
+def armazenar_update(data):
+    chaves = []
+
+    for campo in ("gameId", "slug"):
+        valor = data.get(campo)
+        if valor is not None and str(valor):
+            chaves.append(str(valor))
+
+    if not chaves:
+        return
+
+    if not any(campo in data for campo in ("score", "live", "ended")):
+        return
+
+    agora = time.monotonic()
+
+    registro = {
+        "score": data.get("score", ""),
+        "period": data.get("period", ""),
+        "elapsed": data.get("elapsed", ""),
+        "live": bool(data.get("live", False)),
+        "ended": bool(data.get("ended", False)),
+        "_received": agora,
+    }
+
+    for chave in chaves:
+        placares[chave] = registro
+
+    for chave, valor in list(placares.items()):
+        if agora - valor["_received"] > CACHE_TTL:
+            placares.pop(chave, None)
+
 
 async def conectar_sports_ws():
-    """
-    Conecta ao WebSocket de esportes ao vivo e mantém o cache de placares atualizado.
-    """
+    global conectado
+
+    espera = 5
+
     while True:
         try:
-            async with websockets.connect(SPORTS_WS_URL, ping_interval=20) as ws:
-                logger.info("🏟️ Conectado ao feed de esportes ao vivo.")
-                async for mensagem in ws:
-                    try:
-                        data = json.loads(mensagem)
-                    except json.JSONDecodeError:
-                        logger.warning("JSON inválido recebido no feed de esportes")
+            async with websockets.connect(
+                SPORTS_WS_URL,
+                ping_interval=None,
+                open_timeout=20,
+            ) as ws:
+                conectado = True
+                espera = 5
+                logger.info("Feed esportivo conectado.")
+
+                while True:
+                    mensagem = await asyncio.wait_for(ws.recv(), timeout=30)
+
+                    if isinstance(mensagem, bytes):
+                        mensagem = mensagem.decode("utf-8")
+
+                    if mensagem.strip().lower() == "ping":
+                        await ws.send("pong")
                         continue
 
-                    # Processa mensagens de atualização de resultado
-                    if data.get("type") == "sports_result_update":
-                        await processar_update_esportes(data)
-        
-        except websockets.exceptions.ConnectionClosed:
-            logger.warning("⚠️ Conexão WebSocket de esportes fechada. Reconectando em 5s...")
-            await asyncio.sleep(5)
-        except Exception as e:
-            logger.error(f"⚠️ Erro na conexão de esportes: {type(e).__name__}: {e}. Reconectando em 5s...")
-            await asyncio.sleep(5)
+                    if mensagem.strip().lower() == "pong":
+                        continue
 
-async def processar_update_esportes(data: Dict) -> None:
-    """
-    Processa e armazena atualizações de esportes.
-    
-    Args:
-        data: Dados da atualização de esportes
-    """
-    try:
-        game_id = data.get("gameId")
-        if game_id:
-            placares[game_id] = {
-                "score": data.get("score", ""),
-                "status": data.get("status", ""),
-                "live": data.get("live", False),
-                "ended": data.get("ended", False),
-                "period": data.get("period", ""),
-                "homeTeam": data.get("homeTeam", ""),
-                "awayTeam": data.get("awayTeam", ""),
-            }
-            logger.debug(f"📊 Placar atualizado para jogo {game_id}")
-    except Exception as e:
-        logger.error(f"Erro ao processar update de esportes: {type(e).__name__}: {e}")
+                    try:
+                        dados = json.loads(mensagem)
+                    except (ValueError, TypeError):
+                        continue
 
-def obter_placar(game_id: str) -> Optional[Dict]:
-    """
-    Retorna o placar do jogo ou None se não encontrado.
-    
-    Args:
-        game_id: ID do jogo
-    
-    Returns:
-        Dict com informações do placar ou None
-    """
-    return placares.get(game_id)
+                    lote = dados if isinstance(dados, list) else [dados]
+
+                    for data in lote:
+                        if isinstance(data, dict):
+                            armazenar_update(data)
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception as exc:
+            logger.warning(
+                "Feed esportivo desconectado: %s",
+                type(exc).__name__,
+            )
+
+        finally:
+            conectado = False
+
+        await asyncio.sleep(espera)
+        espera = min(espera * 2, 60)
+
+
+def obter_placar(chave):
+    if chave is None:
+        return None
+
+    registro = placares.get(str(chave))
+
+    if registro is None:
+        return None
+
+    # Não mostrar um placar ao vivo antigo como se fosse atual.
+    if time.monotonic() - registro["_received"] > 120:
+        return None
+
+    return dict(registro)
+
+
+def obter_placar_mercado(mercado):
+    chaves = [mercado.get("gameId")]
+
+    eventos = mercado.get("events") or []
+
+    for evento in eventos:
+        if isinstance(evento, dict):
+            chaves.extend([
+                evento.get("gameId"),
+                evento.get("slug"),
+            ])
+
+    chaves.append(mercado.get("slug"))
+
+    for chave in chaves:
+        placar = obter_placar(chave)
+        if placar is not None:
+            return placar
+
+    return None
