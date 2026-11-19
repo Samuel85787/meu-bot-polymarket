@@ -15,7 +15,7 @@ from telegram_notifier import send_alert, iniciar_notificador, fechar_notificado
 
 logger = logging.getLogger(__name__)
 
-monitor_ativo = False
+monitor_ativo = Fals
 task_monitor = None
 monitor_instance = None
 SETTINGS_FILE = "settings.json"
