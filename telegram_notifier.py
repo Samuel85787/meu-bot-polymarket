@@ -1,25 +1,90 @@
-import aiohttp
 import asyncio
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+import logging
 
-TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+import aiohttp
+import config
 
-async def send_alert(text: str):
-    """Envia alerta para o Telegram de forma assíncrona"""
+logger = logging.getLogger(__name__)
+
+_session = None
+_lock = None
+
+
+async def iniciar_notificador():
+    global _session, _lock
+
+    if _session is None or _session.closed:
+        _session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=15)
+        )
+        _lock = asyncio.Lock()
+
+
+async def fechar_notificador():
+    global _session
+
+    if _session is not None and not _session.closed:
+        await _session.close()
+
+    _session = None
+
+
+async def send_alert(text: str) -> bool:
+    await iniciar_notificador()
+
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
+    )
+
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": config.TELEGRAM_CHAT_ID,
         "text": text,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": False,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
     }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(TELEGRAM_API, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status == 200:
-                    print("✅ Alerta enviado ao Telegram.")
-                else:
-                    print(f"❌ Erro ao enviar alerta: Status {resp.status}")
-    except asyncio.TimeoutError:
-        print("❌ Timeout ao enviar alerta para o Telegram")
-    except Exception as e:
-        print(f"❌ Erro ao enviar alerta: {type(e).__name__}: {e}")
+
+    async with _lock:
+        for tentativa in range(3):
+            try:
+                async with _session.post(url, json=payload) as resp:
+                    dados = await resp.json(content_type=None)
+
+                    if resp.status == 200 and dados.get("ok"):
+                        return True
+
+                    if resp.status == 429:
+                        espera = int(
+                            dados.get("parameters", {}).get("retry_after", 5)
+                        )
+
+                        if espera > 30:
+                            logger.warning(
+                                "Telegram limitou envios; mensagem não enviada."
+                            )
+                            return False
+
+                        await asyncio.sleep(max(espera, 1))
+                        continue
+
+                    if resp.status >= 500 and tentativa < 2:
+                        await asyncio.sleep(2 ** tentativa)
+                        continue
+
+                    logger.error(
+                        "Telegram recusou mensagem: HTTP %s",
+                        resp.status,
+                    )
+                    return False
+
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+                # Não imprimir URLs de requisição: elas contêm o token.
+                logger.warning(
+                    "Falha no envio ao Telegram: %s",
+                    type(exc).__name__,
+                )
+
+                if tentativa < 2:
+                    await asyncio.sleep(2 ** tentativa)
+
+        return False
