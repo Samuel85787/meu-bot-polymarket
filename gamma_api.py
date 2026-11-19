@@ -2,7 +2,7 @@ import json
 import logging
 
 import aiohttp
-import config
+import confi
 
 logger = logging.getLogger(__name__)
 
