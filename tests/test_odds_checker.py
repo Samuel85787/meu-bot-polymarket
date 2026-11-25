@@ -1,7 +1,10 @@
 import unittest
+from unittest.mock import AsyncMock, patch
 
+import odds_checker
 from odds_checker import (
     calcular_probabilidades_sem_vig,
+    check_outcomes,
     find_pm_price,
     normalize_team_name,
     teams_match,
@@ -10,19 +13,104 @@ from odds_checker import (
 )
 
 
+class OddsCooldownTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        odds_checker._last_odds_alert.clear()
+
+    async def test_failed_delivery_does_not_start_cooldown(self):
+        game = {
+            "id": "game-1",
+            "home_team": "Boston Celtics",
+            "away_team": "Los Angeles Lakers",
+        }
+        pinnacle_market = {
+            "outcomes": [
+                {"name": "Boston Celtics", "price": 1.50},
+                {"name": "Los Angeles Lakers", "price": 3.00},
+            ]
+        }
+        pm_market = {
+            "conditionId": "condition-1",
+            "question": "Will Boston Celtics win?",
+            "outcomes": ["Yes", "No"],
+            "outcomePrices": ["0.50", "0.50"],
+        }
+
+        with patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=False)):
+            await check_outcomes(
+                game, pinnacle_market, pm_market,
+                "Boston Celtics", "Los Angeles Lakers",
+            )
+
+        self.assertEqual(odds_checker._last_odds_alert, {})
+
+    async def test_successful_delivery_starts_cooldown(self):
+        game = {
+            "id": "game-1",
+            "home_team": "Boston Celtics",
+            "away_team": "Los Angeles Lakers",
+        }
+        pinnacle_market = {
+            "outcomes": [
+                {"name": "Boston Celtics", "price": 1.50},
+                {"name": "Los Angeles Lakers", "price": 3.00},
+            ]
+        }
+        pm_market = {
+            "conditionId": "condition-1",
+            "question": "Will Boston Celtics win?",
+            "outcomes": ["Yes", "No"],
+            "outcomePrices": ["0.50", "0.50"],
+        }
+
+        with patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=True)):
+            await check_outcomes(
+                game, pinnacle_market, pm_market,
+                "Boston Celtics", "Los Angeles Lakers",
+            )
+
+        self.assertEqual(len(odds_checker._last_odds_alert), 1)
+
+
 class OddsMatchingTests(unittest.TestCase):
     def test_normalizes_accents_and_punctuation(self):
         self.assertEqual(normalize_team_name("São Paulo FC!"), "sao paulo fc")
 
-    def test_requires_both_participants_when_event_has_both(self):
+    def test_matches_both_participants_on_same_event_date(self):
         market = {
             "question": "Boston Celtics vs Los Angeles Lakers",
             "outcomes": ["Yes", "No"],
+            "startDate": "2026-11-25T19:00:00Z",
         }
         self.assertTrue(
             teams_match(
                 "Boston Celtics", "Los Angeles Lakers",
-                market["question"], market,
+                market["question"], market, "2026-11-25T23:30:00Z",
+            )
+        )
+
+    def test_rejects_same_teams_on_a_different_date(self):
+        market = {
+            "question": "Boston Celtics vs Los Angeles Lakers",
+            "outcomes": ["Yes", "No"],
+            "startDate": "2026-11-25T19:00:00Z",
+        }
+        self.assertFalse(
+            teams_match(
+                "Boston Celtics", "Los Angeles Lakers",
+                market["question"], market, "2026-11-26T19:00:00Z",
+            )
+        )
+
+    def test_rejects_match_when_market_has_no_event_time(self):
+        market = {
+            "question": "Boston Celtics vs Los Angeles Lakers",
+            "outcomes": ["Yes", "No"],
+        }
+        self.assertFalse(
+            teams_match(
+                "Boston Celtics", "Los Angeles Lakers",
+                market["question"], market, "2026-11-25T19:00:00Z",
             )
         )
 
