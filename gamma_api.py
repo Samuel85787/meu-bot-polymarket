@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 
 import aiohttp
 import config
@@ -54,9 +55,37 @@ def normalizar_mercado(original, esporte):
     return mercado
 
 
+async def _get_json_with_retry(session, url, params, esporte):
+    """Consulta Gamma com retry limitado para erros transitórios."""
+    for tentativa in range(3):
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                retryable = resp.status == 429 or 500 <= resp.status < 600
+                if not retryable or tentativa == 2:
+                    logger.warning("Gamma HTTP %s para %s", resp.status, esporte)
+                    return None
+                retry_after = resp.headers.get("Retry-After")
+                try:
+                    espera = min(30.0, max(0.0, float(retry_after))) if retry_after else 2 ** tentativa
+                except (TypeError, ValueError):
+                    espera = 2 ** tentativa
+                logger.warning("Gamma HTTP %s para %s; nova tentativa em %.1fs", resp.status, esporte, espera)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+            if tentativa == 2:
+                logger.warning("Falha Gamma para %s: %s", esporte, type(exc).__name__)
+                return None
+            espera = 2 ** tentativa
+            logger.warning("Falha temporaria Gamma para %s (%s); nova tentativa em %.1fs", esporte, type(exc).__name__, espera)
+        await asyncio.sleep(espera + random.uniform(0, 0.25))
+    return None
+
+
 async def fetch_active_markets():
     encontrados = {}
-    timeout = aiohttp.ClientTimeout(total=20)
+    timeout = aiohttp.ClientTimeout(total=20, connect=10)
+    consultas_ok = 0
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         for esporte, tag in config.SPORT_TAGS.items():
@@ -76,20 +105,15 @@ async def fetch_active_markets():
                     "liquidity_num_min": 500,
                 }
 
-                try:
-                    async with session.get(
-                        config.GAMMA_BASE_URL + "/markets",
-                        params=params,
-                    ) as resp:
-                        if resp.status != 200:
-                            logger.warning("Gamma HTTP %s para %s", resp.status, esporte)
-                            break
-
-                        lote = await resp.json()
-
-                    if not isinstance(lote, list):
-                        logger.warning("Resposta inesperada Gamma para %s", esporte)
-                        break
+                lote = await _get_json_with_retry(
+                    session, config.GAMMA_BASE_URL + "/markets", params, esporte
+                )
+                if lote is None:
+                    break
+                if not isinstance(lote, list):
+                    logger.warning("Resposta inesperada Gamma para %s", esporte)
+                    break
+                consultas_ok += 1
 
                     for original in lote:
                         if not isinstance(original, dict):
@@ -116,11 +140,11 @@ async def fetch_active_markets():
                     if recebidos >= limite or len(lote) < 100:
                         break
 
-                except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
-                    logger.warning("Falha %s: %s", esporte, type(exc).__name__)
-                    break
-
             logger.info("%s: %s mercados", esporte, recebidos)
+
+    if consultas_ok == 0:
+        logger.error("Gamma indisponivel em todos os esportes; preservando mercados atuais")
+        return None
 
     mercados = list(encontrados.values())[:config.MAX_MARKETS_TO_MONITOR]
     logger.info("Total: %s mercados", len(mercados))
