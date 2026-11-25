@@ -39,7 +39,7 @@ class OddsCooldownTests(unittest.IsolatedAsyncioTestCase):
         }
 
         fake_ev = {"net_ev_pct": 10.0, "stake_usd": 100, "average_price": 0.5, "best_bid": 0.49, "best_ask": 0.5, "spread_pct": 2, "slippage_pct": 0, "fee_usd": 0, "gross_shares": 200, "net_shares": 200, "net_profit_usd": 10}
-        with patch.object(odds_checker, "_estimate_market_ev", new=AsyncMock(return_value=fake_ev)), patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=False)):
+        with patch.object(odds_checker, "_estimate_market_ev", new=AsyncMock(side_effect=[fake_ev, None])), patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=False)):
             await check_outcomes(
                 game, pinnacle_market, pm_market,
                 "Boston Celtics", "Los Angeles Lakers", session=object(),
@@ -69,7 +69,7 @@ class OddsCooldownTests(unittest.IsolatedAsyncioTestCase):
         }
 
         fake_ev = {"net_ev_pct": 10.0, "stake_usd": 100, "average_price": 0.5, "best_bid": 0.49, "best_ask": 0.5, "spread_pct": 2, "slippage_pct": 0, "fee_usd": 0, "gross_shares": 200, "net_shares": 200, "net_profit_usd": 10}
-        with patch.object(odds_checker, "_estimate_market_ev", new=AsyncMock(return_value=fake_ev)), patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=True)):
+        with patch.object(odds_checker, "_estimate_market_ev", new=AsyncMock(side_effect=[fake_ev, None])), patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=True)):
             await check_outcomes(
                 game, pinnacle_market, pm_market,
                 "Boston Celtics", "Los Angeles Lakers", session=object(),
