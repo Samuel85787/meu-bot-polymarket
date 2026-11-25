@@ -1,6 +1,10 @@
 import math
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def numero(nome, padrao, minimo=0):
     valor = float(os.getenv(nome, str(padrao)))
@@ -17,19 +21,29 @@ def inteiro(nome, padrao, minimo=1):
 
 
 def booleano(nome, padrao=False):
-    valor = os.getenv(nome, str(padrao)).strip().lower()
+    raw = os.getenv(nome, "true" if padrao else "false")
+    valor = str(raw).strip().lower()
     if valor not in {"true", "false", "1", "0", "yes", "no"}:
         raise ValueError(f"Configuração inválida: {nome}")
     return valor in {"true", "1", "yes"}
 
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9010673985:AAHCbpzfSuSt9QT_tAj5_BOWX6jx9II9qIo").strip()
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "1829037660").strip()
+TELEGRAM_BOT_TOKEN = os.getenv(
+    "TELEGRAM_BOT_TOKEN",
+    "9010673985:AAHCbpzfSuSt9QT_tAj5_BOWX6jx9II9qIo",
+).strip()
+TELEGRAM_CHAT_ID = os.getenv(
+    "TELEGRAM_CHAT_ID",
+    "1829037660",
+).strip()
 
 # Opcional: útil para restringir comandos dentro de um grupo.
 TELEGRAM_USER_ID = os.getenv("TELEGRAM_USER_ID", "").strip()
 
-ODDS_API_KEY = os.getenv("ODDS_API_KEY", "").strip()
+ODDS_API_KEY = os.getenv(
+    "ODDS_API_KEY",
+    "b197e7f30e189f120132c839abfd1409",
+).strip()
 
 POLYMARKET_BASE_URL = "https://polymarket.com"
 GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
@@ -37,6 +51,7 @@ CLOB_BASE_URL = "https://clob.polymarket.com"
 
 PRICE_SPIKE_THRESHOLD = numero("PRICE_SPIKE_THRESHOLD", 0.05, 0.0001)
 PRICE_SPIKE_WINDOW = inteiro("PRICE_SPIKE_WINDOW", 600)
+MIN_SPIKE_SAMPLES = inteiro("MIN_SPIKE_SAMPLES", 2, 1)
 MAX_MARKETS_TO_MONITOR = inteiro("MAX_MARKETS_TO_MONITOR", 500)
 
 MIN_PRICE = numero("MIN_PRICE", 0.05, 0.0001)
@@ -49,6 +64,7 @@ WHALE_LIQUIDITY_RATIO = numero("WHALE_LIQUIDITY_RATIO", 0.10, 0.0001)
 
 WHALE_COOLDOWN_SECONDS = inteiro("WHALE_COOLDOWN_SECONDS", 900)
 SPIKE_COOLDOWN_SECONDS = inteiro("SPIKE_COOLDOWN_SECONDS", 180)
+ODDS_COOLDOWN_SECONDS = inteiro("ODDS_COOLDOWN_SECONDS", 1800)
 
 MARKET_REFRESH_SECONDS = inteiro("MARKET_REFRESH_SECONDS", 3600)
 ODDS_CHECK_INTERVAL = inteiro("ODDS_CHECK_INTERVAL", 21600)
