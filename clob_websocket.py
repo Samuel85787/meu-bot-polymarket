@@ -53,6 +53,11 @@ class PolymarketMonitor:
         self.token_to_market = token_to_market
         self.token_to_outcome = token_to_outcome
 
+    def dentro_faixa_preco(self, price):
+        if not config.FILTER_PRICE_RANGE:
+            return True
+        return config.MIN_PRICE <= price <= config.MAX_PRICE
+
     async def subscribe_new_assets(self):
         if not self._ws or not self.connected:
             return
@@ -209,6 +214,9 @@ class PolymarketMonitor:
             if price <= 0 or price >= 1:
                 return
 
+            if not self.dentro_faixa_preco(price):
+                return
+
             result = self.tracker.add_price(token_id, price)
             if result:
                 event_type, old_price, new_price, pct = result
@@ -230,6 +238,7 @@ class PolymarketMonitor:
         try:
             link = self.gerar_link(market)
             volume_total = self.parse_float(market.get("volume", 0))
+            liquidez = self.parse_float(market.get("liquidity", 0))
             question = market.get("question", "Mercado desconhecido")
             titulo = "PRECO SUBIU" if event_type == "SPIKE_UP" else "PRECO CAIU"
 
@@ -239,6 +248,7 @@ class PolymarketMonitor:
                 f"Palpite: {outcome_name}\n"
                 f"Preco: {round(old_price, 4)} -> {round(new_price, 4)}\n"
                 f"Oscilacao: {round(pct * 100, 2)}%\n"
+                f"Liquidez: ${int(liquidez)}\n"
                 f"Volume: ${int(volume_total)}\n"
                 f"Link: {link}"
             )
@@ -256,10 +266,20 @@ class PolymarketMonitor:
             ratio_liquidez = (usd_value / liquidez) if liquidez > 0 else 0
 
             is_big_bet = usd_value >= config.MIN_BET_AMOUNT
-            is_insider_bet = ratio_liquidez >= config.WHALE_LIQUIDITY_RATIO
+            is_insider_bet = (
+                usd_value >= config.MIN_IMPACT_BET_AMOUNT
+                and ratio_liquidez >= config.WHALE_LIQUIDITY_RATIO
+            )
 
             if not is_big_bet and not is_insider_bet:
                 return
+
+            if is_big_bet and is_insider_bet:
+                motivo = f"Valor alto + Impacto ({round(ratio_liquidez * 100, 1)}% da liq)"
+            elif is_insider_bet:
+                motivo = f"Impacto na liquidez ({round(ratio_liquidez * 100, 1)}% da liq)"
+            else:
+                motivo = "Valor absoluto elevado"
 
             slug = market.get("slug", "unknown")
             if not self.should_alert("whale_" + slug, config.WHALE_COOLDOWN_SECONDS):
@@ -269,13 +289,15 @@ class PolymarketMonitor:
             placar = self.formatar_placar(placar_raw)
 
             await self.enviar_alerta_baleia(
-                market, outcome_name, price, data.get("side", "?"), usd_value, placar
+                market, outcome_name, price, data.get("side", "?"), usd_value, placar, motivo
             )
 
         except Exception as e:
             logger.error("Erro baleia: %s", e)
 
-    async def enviar_alerta_baleia(self, market, outcome_name, price, side_raw, usd_value, placar):
+    async def enviar_alerta_baleia(
+        self, market, outcome_name, price, side_raw, usd_value, placar, motivo
+    ):
         try:
             volume_total = self.parse_float(market.get("volume", 0))
             liquidez = self.parse_float(market.get("liquidity", 0))
@@ -289,6 +311,7 @@ class PolymarketMonitor:
                 f"{titulo}\n"
                 f"Jogo: {question}\n"
                 f"Palpite: {outcome_name}\n"
+                f"Motivo: {motivo}\n"
                 f"Acao: {side_texto}\n"
                 f"Valor: ${round(usd_value, 2)}\n"
                 f"Preco: {round(price, 4)}\n"
