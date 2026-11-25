@@ -11,6 +11,7 @@ from gamma_api import fetch_active_markets
 from odds_checker import check_arbitrage
 from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
+from alert_history import initialize as inicializar_historico, get_metrics, update_resolutions
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,22 @@ async def processar_comando(texto):
         else:
             await enviar_mensagem("Monitor ja esta desligado")
 
+    elif texto in ["/metrics", "/metricas", "/historico"]:
+        metricas = get_metrics()
+        taxa = f"{metricas['win_rate']:.1f}%" if metricas["win_rate"] is not None else "Ainda sem amostra"
+        ev_medio = f"{metricas['avg_ev']:+.2f}%" if metricas["avg_ev"] is not None else "—"
+        linhas = [
+            f"Alertas registrados: {metricas['total']}",
+            f"Resultados pendentes: {metricas['pending']}",
+            f"Mercados resolvidos: {metricas['settled']}",
+            f"Acertos: {metricas['wins']} | Erros: {metricas['losses']}",
+            f"Taxa de acerto: {taxa}",
+            f"EV médio no alerta: {ev_medio}",
+        ]
+        for item in metricas["by_type"]:
+            linhas.append(f"{item['alert_type']}: {item['total']} alertas, {item['wins'] or 0} acertos, {item['losses'] or 0} erros")
+        await enviar_mensagem("HISTÓRICO E DESEMPENHO\n" + "\n".join(linhas))
+
     elif texto in ["/status", "/help", "/ajuda"]:
         estado = "Ligado" if monitor_ativo else "Desligado"
         baleias = "Ligado" if config.ENABLE_WHALE_ALERTS else "Desligado"
@@ -156,6 +173,7 @@ async def processar_comando(texto):
             "/start - Ligar monitor\n"
             "/stop - Desligar monitor\n"
             "/status - Ver status\n"
+            "/metrics - Ver desempenho dos alertas\n"
             "/setbet [valor] - Mudar filtro\n"
             "/setspike [ex: 0.15 ou 15] - Mudar oscilacao\n"
             "/setwhale - Ligar/Desligar baleias"
@@ -213,6 +231,20 @@ async def iniciar_monitor():
         await enviar_mensagem(f"Erro no monitor: {e}")
     finally:
         monitor_ativo = False
+
+
+async def loop_alert_history():
+    while True:
+        try:
+            atualizados = await update_resolutions()
+            if atualizados:
+                logger.info("Resultados de alertas atualizados: %s", atualizados)
+            await asyncio.sleep(300)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Erro ao atualizar histórico: %s", type(exc).__name__)
+            await asyncio.sleep(60)
 
 
 async def loop_odds_value():
@@ -283,7 +315,7 @@ async def main():
         asyncio.create_task(supervisionar_tarefa("health-server", iniciar_servidor_web)),
         asyncio.create_task(supervisionar_tarefa("sports-websocket", conectar_sports_ws)),
         asyncio.create_task(supervisionar_tarefa("telegram-listener", escutar_telegram)),
-        asyncio.create_task(supervisionar_tarefa("odds-value", loop_odds_value)),
+        asyncio.create_task(supervisionar_tarefa("odds-value", loop_odds_value)),\n        asyncio.create_task(supervisionar_tarefa("alert-history", loop_alert_history)),
     ]
 
     if config.AUTO_START:
