@@ -202,6 +202,7 @@ async def iniciar_monitor():
     try:
         logger.info("Buscando mercados")
         markets = await fetch_active_markets()
+        markets = markets or []
         logger.info("Mercados carregados: %s", len(markets))
         monitor_instance = PolymarketMonitor(markets)
         await monitor_instance.run()
