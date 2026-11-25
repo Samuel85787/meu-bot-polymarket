@@ -14,6 +14,15 @@ class PriceTracker:
         self.ema = {}
         self.last_seen = {}
 
+    def remove_tokens(self, active_tokens):
+        """Libera o histórico de tokens que saíram dos mercados monitorados."""
+        active = set(active_tokens)
+        for token_id in list(self.last_seen):
+            if token_id not in active:
+                self.last_seen.pop(token_id, None)
+                self.history.pop(token_id, None)
+                self.ema.pop(token_id, None)
+
     def add_price(self, token_id: str, price: float):
         if not math.isfinite(price) or not 0 < price < 1:
             return None
