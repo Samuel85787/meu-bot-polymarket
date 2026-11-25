@@ -38,6 +38,7 @@ def format_status():
     if not services:
         return "Diagnóstico ainda inicializando."
     labels = {
+        "monitor": "Monitor de mercados",
         "telegram_listener": "Telegram (comandos)",
         "telegram_sender": "Telegram (envio)",
         "clob_ws": "Polymarket CLOB",
