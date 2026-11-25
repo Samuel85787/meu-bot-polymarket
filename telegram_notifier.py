@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 
 import aiohttp
@@ -8,6 +9,8 @@ logger = logging.getLogger(__name__)
 
 _session = None
 _lock = None
+_last_send_time = 0.0
+MIN_INTERVAL_SECONDS = 0.25
 
 
 async def iniciar_notificador():
@@ -17,6 +20,7 @@ async def iniciar_notificador():
         _session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=15)
         )
+    if _lock is None:
         _lock = asyncio.Lock()
 
 
@@ -30,6 +34,7 @@ async def fechar_notificador():
 
 
 async def send_alert(text: str) -> bool:
+    global _last_send_time
     await iniciar_notificador()
 
     url = (
@@ -39,18 +44,23 @@ async def send_alert(text: str) -> bool:
 
     payload = {
         "chat_id": config.TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
+        "text": html.escape(str(text)),
         "disable_web_page_preview": True,
     }
 
     async with _lock:
+        agora = asyncio.get_running_loop().time()
+        espera_minima = MIN_INTERVAL_SECONDS - (agora - _last_send_time)
+        if espera_minima > 0:
+            await asyncio.sleep(espera_minima)
+
         for tentativa in range(3):
             try:
                 async with _session.post(url, json=payload) as resp:
                     dados = await resp.json(content_type=None)
 
                     if resp.status == 200 and dados.get("ok"):
+                        _last_send_time = asyncio.get_running_loop().time()
                         return True
 
                     if resp.status == 429:
