@@ -4,6 +4,7 @@ import logging
 
 import aiohttp
 import config
+from health_status import set_service
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ async def send_alert(text: str) -> bool:
 
                     if resp.status == 200 and dados.get("ok"):
                         _last_send_time = asyncio.get_running_loop().time()
+                        set_service("telegram_sender", "ok", "último envio confirmado")
                         return True
 
                     if resp.status == 429:
@@ -72,7 +74,8 @@ async def send_alert(text: str) -> bool:
                             logger.warning(
                                 "Telegram limitou envios; mensagem não enviada."
                             )
-                            return False
+                            set_service("telegram_sender", "error", "falha após 3 tentativas")
+        return False
 
                         await asyncio.sleep(max(espera, 1))
                         continue
@@ -81,6 +84,7 @@ async def send_alert(text: str) -> bool:
                         await asyncio.sleep(2 ** tentativa)
                         continue
 
+                    set_service("telegram_sender", "error", f"HTTP {resp.status}")
                     logger.error(
                         "Telegram recusou mensagem: HTTP %s",
                         resp.status,
@@ -89,6 +93,7 @@ async def send_alert(text: str) -> bool:
 
             except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
                 # Não imprimir URLs de requisição: elas contêm o token.
+                set_service("telegram_sender", "error", type(exc).__name__)
                 logger.warning(
                     "Falha no envio ao Telegram: %s",
                     type(exc).__name__,
