@@ -15,6 +15,7 @@ from sports_score_checker import obter_placar_mercado
 from telegram_notifier import send_alert
 from market_context import formatar_contexto_mercado
 from alert_history import record_alert
+from health_status import set_service
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,7 @@ class PolymarketMonitor:
                     logger.warning("Atualizacao Gamma inconclusiva; mantendo mercados atuais")
                     continue
                 self.update_markets(novos_mercados)
+                set_service("gamma_api", "ok", f"{len(novos_mercados)} mercados carregados")
                 await self.sync_subscriptions()
             except asyncio.CancelledError:
                 raise
@@ -249,6 +251,7 @@ class PolymarketMonitor:
                         self._subscribed_assets = set(assets)
                         logger.info("Conectado ao CLOB (%s tokens)", len(assets))
                         self.connected = True
+                        set_service("clob_ws", "ok", f"{len(assets)} tokens assinados")
 
                         async for raw in ws:
                             if raw == "PONG":
@@ -273,9 +276,11 @@ class PolymarketMonitor:
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
+                    set_service("clob_ws", "error", type(e).__name__)
                     logger.warning("Falha WebSocket CLOB: %s", type(e).__name__)
                 finally:
                     self.connected = False
+                    set_service("clob_ws", "error", "desconectado")
                     self._ws = None
                     self._subscribed_assets.clear()
                     # Os snapshots pertencem à conexão anterior; aguardamos novo dump.
