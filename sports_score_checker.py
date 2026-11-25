@@ -4,6 +4,7 @@ import logging
 import time
 
 import websockets
+from health_status import set_service
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ async def conectar_sports_ws():
             ) as ws:
                 conectado = True
                 espera = 5
+                set_service("sports_ws", "ok", "conectado")
                 logger.info("Feed esportivo conectado.")
 
                 while True:
@@ -108,6 +110,7 @@ async def conectar_sports_ws():
 
         finally:
             conectado = False
+            set_service("sports_ws", "error", "desconectado")
 
         await asyncio.sleep(espera)
         espera = min(espera * 2, 60)
