@@ -104,6 +104,7 @@ class PolymarketMonitor:
             "bid_depth_5": sum(size for _, size in bids[:5]),
             "ask_depth_5": sum(size for _, size in asks[:5]),
             "updated_at": time.monotonic(),
+            "depth_updated_at": time.monotonic(),
         }
 
     def update_best_quotes(self, data):
@@ -130,9 +131,17 @@ class PolymarketMonitor:
         bid = f"{book['best_bid']:.4f}" if book["best_bid"] is not None else "—"
         ask = f"{book['best_ask']:.4f}" if book["best_ask"] is not None else "—"
         spread = f"{book['spread']:.4f}" if book["spread"] is not None else "—"
+        depth_age = time.monotonic() - book.get("depth_updated_at", 0)
+        if depth_age <= 120:
+            depth_text = (
+                f"Profundidade (snapshot {depth_age:.0f}s): "
+                f"compra {book['bid_depth_5']:.0f} / venda {book['ask_depth_5']:.0f} tokens"
+            )
+        else:
+            depth_text = "Profundidade: snapshot antigo, indisponível"
         return (
             f"Bid/Ask: {bid} / {ask} | Spread: {spread}\n"
-            f"Profundidade 5 níveis: compra {book['bid_depth_5']:.0f} / venda {book['ask_depth_5']:.0f} tokens"
+            f"{depth_text}"
         )
 
     async def refresh_markets_loop(self):
