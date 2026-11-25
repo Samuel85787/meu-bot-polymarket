@@ -308,6 +308,7 @@ async def main():
     logger.info("Iniciando bot")
     config.validar_config()
     carregar_configuracoes()
+    inicializar_historico()
 
     await iniciar_notificador()
 
@@ -315,7 +316,8 @@ async def main():
         asyncio.create_task(supervisionar_tarefa("health-server", iniciar_servidor_web)),
         asyncio.create_task(supervisionar_tarefa("sports-websocket", conectar_sports_ws)),
         asyncio.create_task(supervisionar_tarefa("telegram-listener", escutar_telegram)),
-        asyncio.create_task(supervisionar_tarefa("odds-value", loop_odds_value)),\n        asyncio.create_task(supervisionar_tarefa("alert-history", loop_alert_history)),
+        asyncio.create_task(supervisionar_tarefa("odds-value", loop_odds_value)),
+        asyncio.create_task(supervisionar_tarefa("alert-history", loop_alert_history)),
     ]
 
     if config.AUTO_START:
