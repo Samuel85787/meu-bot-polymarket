@@ -12,6 +12,7 @@ import config
 from market_context import formatar_contexto_mercado
 from telegram_notifier import send_alert
 from alert_history import record_alert
+from health_status import set_service
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ async def discover_supported_sports(session):
     try:
         async with session.get(url, params=params) as resp:
             if resp.status != 200:
+                set_service("odds_api", "error", f"sports HTTP {resp.status}")
                 logger.warning("Odds API sports discovery: HTTP %s", resp.status)
                 return list(_sports_cache)
             payload = await resp.json()
@@ -82,11 +84,13 @@ async def discover_supported_sports(session):
             for key in discovered.get(category, [])
         ]
         _sports_cache_at = now
+        set_service("odds_api", "ok", f"{len(_sports_cache)} feeds esportivos disponíveis")
         for category in SUPPORTED_SPORTS:
             if not discovered.get(category):
                 logger.info("Odds API sem feed ativo identificado para %s", category)
         return list(_sports_cache)
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+        set_service("odds_api", "error", type(exc).__name__)
         logger.warning("Falha ao descobrir esportes na Odds API: %s", type(exc).__name__)
         return list(_sports_cache)
 
@@ -269,16 +273,20 @@ async def check_sport_arbitrage(session, sport_key, sport_name, pm_markets):
     try:
         async with session.get(url, params=params) as resp:
             if resp.status != 200:
+                set_service("odds_api", "error", f"{sport_name}: HTTP {resp.status}")
                 logger.warning("Odds API %s: HTTP %s", sport_name, resp.status)
                 return
             odds_data = await resp.json()
             if not isinstance(odds_data, list):
+                set_service("odds_api", "error", f"{sport_name}: resposta inválida")
                 logger.warning("Resposta inesperada da Odds API para %s", sport_name)
                 return
+            set_service("odds_api", "ok", f"{sport_name}: {len(odds_data)} eventos consultados")
             for game in odds_data:
                 if isinstance(game, dict) and game.get("bookmakers"):
                     await process_game(game, pm_markets, sport_name, session)
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+        set_service("odds_api", "error", f"{sport_name}: {type(exc).__name__}")
         logger.warning("Falha ao consultar %s: %s", sport_name, type(exc).__name__)
 
 
