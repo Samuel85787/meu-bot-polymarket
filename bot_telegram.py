@@ -168,13 +168,13 @@ async def processar_comando(texto):
         )
 
         msg = (
-            f"Status do Bot: {estado}\\n"
-            f"Mercados monitorados: {len(mercados)}\\n"
-            f"\\nSAÚDE DOS SERVIÇOS\\n{diagnostico}\\n\\n"
-            f"Filtro de Aposta: ${config.MIN_BET_AMOUNT}\\n"
-            f"Filtro de Oscilacao: {round(config.PRICE_SPIKE_THRESHOLD * 100, 2)}%\\n"
-            f"Alertas de Baleias: {baleias}\\n"
-            f"Mercados por esporte:\\n{resumo_esportes}\\n\\n"
+            f"Status do Bot: {estado}\n"
+            f"Mercados monitorados: {len(mercados)}\n"
+            f"\nSAÚDE DOS SERVIÇOS\n{diagnostico}\n\n"
+            f"Filtro de Aposta: ${config.MIN_BET_AMOUNT}\n"
+            f"Filtro de Oscilacao: {round(config.PRICE_SPIKE_THRESHOLD * 100, 2)}%\n"
+            f"Alertas de Baleias: {baleias}\n"
+            f"Mercados por esporte:\n{resumo_esportes}\n\n"
             "Comandos:\\n"
             "/start - Ligar monitor\n"
             "/stop - Desligar monitor\n"
@@ -225,14 +225,18 @@ async def iniciar_monitor():
     global monitor_ativo, monitor_instance
     try:
         logger.info("Buscando mercados")
+        set_service("monitor", "checking", "carregando mercados")
         markets = await fetch_active_markets()
         markets = markets or []
         logger.info("Mercados carregados: %s", len(markets))
         monitor_instance = PolymarketMonitor(markets)
+        set_service("monitor", "ok", f"{len(markets)} mercados carregados")
         await monitor_instance.run()
     except asyncio.CancelledError:
+        set_service("monitor", "warning", "desligado pelo comando")
         logger.info("Monitor cancelado")
     except Exception as e:
+        set_service("monitor", "error", type(e).__name__)
         logger.error("Erro monitor: %s", e)
         await enviar_mensagem(f"Erro no monitor: {e}")
     finally:
