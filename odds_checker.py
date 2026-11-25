@@ -11,6 +11,7 @@ import aiohttp
 import config
 from market_context import formatar_contexto_mercado
 from telegram_notifier import send_alert
+from alert_history import record_alert
 
 logger = logging.getLogger(__name__)
 
@@ -445,7 +446,7 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team,
         if last_alert is not None and now - last_alert < config.ODDS_COOLDOWN_SECONDS:
             continue
         enviado = await send_arbitrage_alert(
-            game, info, info["odds"], fair_prob, ev_data, pm_market
+            game, info, info["odds"], fair_prob, ev_data, pm_market, token_id
         )
         if enviado:
             _last_odds_alert[key] = now
@@ -478,7 +479,7 @@ def find_pm_price(pm_market, target_side, yes_side, home_team, away_team):
     return None
 
 
-async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm_market):
+async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm_market, token_id=None):
     try:
         slug = pm_market.get("slug")
         link = (
@@ -500,6 +501,14 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
         )
         enviado = await send_alert(message)
         if enviado:
+            record_alert(
+                "odds_value", "EV líquido", pm_market, token_id=token_id,
+                outcome=info["name"], entry_price=ev_data["average_price"],
+                reference_prob=fair_prob, ev_pct=ev_data["net_ev_pct"],
+                stake_usd=ev_data["stake_usd"],
+                details={"fee_usd": ev_data["fee_usd"], "spread_pct": ev_data["spread_pct"],
+                         "slippage_pct": ev_data["slippage_pct"]},
+            )
             logger.info("Oportunidade Odds Value enviada: %s", info["name"])
         else:
             logger.warning("Telegram não confirmou o alerta Odds Value: %s", info["name"])
