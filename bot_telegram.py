@@ -27,7 +27,13 @@ def carregar_configuracoes():
                 dados = json.load(f)
                 config.MIN_BET_AMOUNT = float(dados.get("min_bet", config.MIN_BET_AMOUNT))
                 config.PRICE_SPIKE_THRESHOLD = float(dados.get("spike", config.PRICE_SPIKE_THRESHOLD))
-                config.ENABLE_WHALE_ALERTS = bool(dados.get("whales", config.ENABLE_WHALE_ALERTS))
+                whales_value = dados.get("whales", config.ENABLE_WHALE_ALERTS)
+                if isinstance(whales_value, bool):
+                    config.ENABLE_WHALE_ALERTS = whales_value
+                else:
+                    config.ENABLE_WHALE_ALERTS = str(whales_value).strip().lower() in {
+                        "true", "1", "yes", "on"
+                    }
                 logger.info("Configuracoes salvas carregadas")
         except Exception as e:
             logger.error("Erro ao carregar config: %s", e)
@@ -200,14 +206,31 @@ async def iniciar_monitor():
 async def loop_odds_value():
     while True:
         try:
+            if not monitor_ativo:
+                await asyncio.sleep(5)
+                continue
+            mercados_atuais = monitor_instance.markets if monitor_instance else None
+            await check_arbitrage(mercados_atuais)
             await asyncio.sleep(config.ODDS_CHECK_INTERVAL)
-            if monitor_ativo:
-                mercados_atuais = monitor_instance.markets if monitor_instance else None
-                await check_arbitrage(mercados_atuais)
         except asyncio.CancelledError:
-            break
+            raise
         except Exception as e:
-            logger.error("Erro odds: %s", e)
+            logger.error("Erro odds: %s", type(e).__name__)
+            await asyncio.sleep(30)
+
+
+async def supervisionar_tarefa(nome, fabrica):
+    """Reinicia serviços de fundo que terminarem inesperadamente."""
+    while True:
+        try:
+            logger.info("Iniciando tarefa supervisionada: %s", nome)
+            await fabrica()
+            logger.warning("Tarefa %s terminou; reiniciando em 5 segundos", nome)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Tarefa %s falhou: %s", nome, type(exc).__name__)
+        await asyncio.sleep(5)
 
 
 async def health_check_handler(reader, writer):
@@ -238,10 +261,12 @@ async def main():
 
     await iniciar_notificador()
 
-    asyncio.create_task(iniciar_servidor_web())
-    asyncio.create_task(conectar_sports_ws())
-    asyncio.create_task(escutar_telegram())
-    asyncio.create_task(loop_odds_value())
+    background_tasks = [
+        asyncio.create_task(supervisionar_tarefa("health-server", iniciar_servidor_web)),
+        asyncio.create_task(supervisionar_tarefa("sports-websocket", conectar_sports_ws)),
+        asyncio.create_task(supervisionar_tarefa("telegram-listener", escutar_telegram)),
+        asyncio.create_task(supervisionar_tarefa("odds-value", loop_odds_value)),
+    ]
 
     if config.AUTO_START:
         monitor_ativo = True
@@ -251,11 +276,17 @@ async def main():
         await enviar_mensagem("Bot iniciado. Mande /start")
 
     try:
-        while True:
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Bot encerrado")
+        await asyncio.gather(*background_tasks)
+    except asyncio.CancelledError:
+        raise
     finally:
+        for task in background_tasks:
+            task.cancel()
+        if task_monitor and not task_monitor.done():
+            task_monitor.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+        if task_monitor:
+            await asyncio.gather(task_monitor, return_exceptions=True)
         await fechar_notificador()
 
 
