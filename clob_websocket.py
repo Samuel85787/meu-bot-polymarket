@@ -14,6 +14,7 @@ from price_tracker import PriceTracker
 from sports_score_checker import obter_placar_mercado
 from telegram_notifier import send_alert
 from market_context import formatar_contexto_mercado
+from alert_history import record_alert
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +317,7 @@ class PolymarketMonitor:
                 slug = market.get("slug", "unknown")
                 if self.should_alert("spike_" + slug + "_" + outcome_name, config.SPIKE_COOLDOWN_SECONDS):
                     await self.enviar_alerta_oscilacao(
-                        market, outcome_name, old_price, new_price, pct, event_type
+                        market, outcome_name, old_price, new_price, pct, event_type, token_id
                     )
 
             if config.ENABLE_WHALE_ALERTS:
@@ -326,7 +327,7 @@ class PolymarketMonitor:
             logger.error("Erro trade: %s", e)
 
     async def enviar_alerta_oscilacao(
-        self, market, outcome_name, old_price, new_price, pct, event_type="SPIKE_UP"
+        self, market, outcome_name, old_price, new_price, pct, event_type="SPIKE_UP", token_id=None
     ):
         try:
             link = self.gerar_link(market)
@@ -347,7 +348,11 @@ class PolymarketMonitor:
                 f"Link: {link}"
             )
 
-            await send_alert(msg_text)
+            enviado = await send_alert(msg_text)
+            if enviado:
+                record_alert("price_spike", event_type, market, token_id=token_id,
+                             outcome=outcome_name, entry_price=new_price,
+                             details={"previous_price": old_price, "change_pct": pct * 100})
         except Exception as e:
             logger.error("Erro alerta oscilacao: %s", e)
 
@@ -401,7 +406,7 @@ class PolymarketMonitor:
             book = self.formatar_book(data.get("asset_id", ""))
             await self.enviar_alerta_baleia(
                 market, outcome_name, price, side_raw, usd_value, placar, motivo,
-                fluxo, book,
+                fluxo, book, str(data.get("asset_id", "")),
             )
 
         except Exception as e:
@@ -409,7 +414,7 @@ class PolymarketMonitor:
 
     async def enviar_alerta_baleia(
         self, market, outcome_name, price, side_raw, usd_value, placar, motivo,
-        fluxo=None, book=None,
+        fluxo=None, book=None, token_id=None,
     ):
         try:
             volume_total = self.parse_float(market.get("volume", 0))
@@ -440,6 +445,10 @@ class PolymarketMonitor:
                 msg_text += f"Livro de ofertas: {book}\n"
             msg_text += f"Link: {link}"
 
-            await send_alert(msg_text)
+            enviado = await send_alert(msg_text)
+            if enviado:
+                record_alert("whale", side_raw, market, token_id=token_id,
+                             outcome=outcome_name, entry_price=price, stake_usd=usd_value,
+                             details={"reason": motivo, "flow": fluxo})
         except Exception as e:
             logger.error("Erro alerta baleia: %s", e)
