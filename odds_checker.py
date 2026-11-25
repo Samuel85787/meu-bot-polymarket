@@ -118,13 +118,13 @@ async def check_sport_arbitrage(session, sport_key, sport_name, pm_dict):
             for game in odds_data:
                 if not isinstance(game, dict) or not game.get("bookmakers"):
                     continue
-                await process_game(game, pm_dict)
+                await process_game(game, pm_dict, sport_name)
 
     except Exception as e:
         logger.error("Falha %s: %s", sport_name, e)
 
 
-async def process_game(game, pm_dict):
+async def process_game(game, pm_dict, sport_name):
     try:
         pinnacle = next(
             (b for b in game.get("bookmakers", []) if str(b.get("key", "")).lower() == "pinnacle"),

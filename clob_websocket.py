@@ -311,8 +311,9 @@ class PolymarketMonitor:
 
             msg_text = (
                 f"{titulo}\n"
-                f"Jogo: {question}\n"
-                f"Palpite: {outcome_name}\n"
+                f"Evento: {question}\n"
+                f"{formatar_contexto_mercado(market)}\n"
+                f"Seleção: {outcome_name}\n"
                 f"Motivo: {motivo}\n"
                 f"Acao: {side_texto}\n"
                 f"Valor: ${round(usd_value, 2)}\n"
