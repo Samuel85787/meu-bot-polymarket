@@ -145,20 +145,26 @@ def teams_match(home_team, away_team, question, pm_market=None, commence_time=No
     text = _market_text(market)
     home_found = _contains_team(text, home_team)
     away_found = _contains_team(text, away_team)
-    if home_found and away_found:
-        return True
-    if not (home_found or away_found):
-        return False
-
-    outcomes = {normalize_team_name(value) for value in market.get("outcomes", [])}
-    if not outcomes.intersection({"yes", "no"}):
-        return False
+    if not (home_found and away_found):
+        # Mercados binários podem citar apenas o participante selecionado.
+        # Nesse caso, exige também evidência temporal para evitar associação
+        # por coincidência de nomes.
+        if not (home_found or away_found):
+            return False
+        outcomes = {normalize_team_name(value) for value in market.get("outcomes", [])}
+        if not outcomes.intersection({"yes", "no"}):
+            return False
 
     market_time = _market_start_time(market)
     game_time = _parse_datetime(commence_time)
     if not market_time or not game_time:
         return False
-    return abs((market_time - game_time).total_seconds()) <= 24 * 60 * 60
+
+    # Jogos no mesmo dia UTC podem ter horários de início diferentes entre
+    # provedores. Para datas diferentes, só tolera uma virada de dia próxima.
+    if market_time.date() == game_time.date():
+        return True
+    return abs((market_time - game_time).total_seconds()) <= 6 * 60 * 60
 
 
 def _resolve_side(outcome_name, home_team, away_team):
@@ -335,10 +341,12 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team)
         now = time.monotonic()
         if now - _last_odds_alert.get(key, 0) < config.ODDS_COOLDOWN_SECONDS:
             continue
-        _last_odds_alert[key] = now
-        await send_arbitrage_alert(
+        # Só inicia o cooldown quando o Telegram confirma o envio.
+        enviado = await send_arbitrage_alert(
             game, info, info["odds"], fair_prob, pm_price, pm_market
         )
+        if enviado:
+            _last_odds_alert[key] = now
 
 
 def find_pm_price(pm_market, target_side, yes_side, home_team, away_team):
@@ -388,7 +396,12 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, pm_price, p
             f"EV bruto estimado: {ev_percent:+.1f}% (sem taxas, spread e slippage)\n"
             f"Link: {link}"
         )
-        await send_alert(message)
-        logger.info("Oportunidade Odds Value: %s", info["name"])
+        enviado = await send_alert(message)
+        if enviado:
+            logger.info("Oportunidade Odds Value enviada: %s", info["name"])
+        else:
+            logger.warning("Telegram não confirmou o alerta Odds Value: %s", info["name"])
+        return bool(enviado)
     except Exception as exc:
         logger.error("Erro ao enviar alerta Odds Value: %s", type(exc).__name__)
+        return False
