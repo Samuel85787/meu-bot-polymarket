@@ -135,13 +135,24 @@ async def processar_comando(texto):
     elif texto in ["/status", "/help", "/ajuda"]:
         estado = "Ligado" if monitor_ativo else "Desligado"
         baleias = "Ligado" if config.ENABLE_WHALE_ALERTS else "Desligado"
+        mercados = monitor_instance.markets if monitor_instance else []
+        contagem = {esporte: 0 for esporte in config.SPORT_TAGS}
+        for mercado in mercados:
+            esporte = mercado.get("_sport")
+            if esporte in contagem:
+                contagem[esporte] += 1
+        resumo_esportes = "\\n".join(
+            f"{esporte}: {quantidade}" for esporte, quantidade in contagem.items()
+        )
 
         msg = (
-            f"Status do Bot: {estado}\n"
-            f"Filtro de Aposta: ${config.MIN_BET_AMOUNT}\n"
-            f"Filtro de Oscilacao: {round(config.PRICE_SPIKE_THRESHOLD * 100, 2)}%\n"
-            f"Alertas de Baleias: {baleias}\n\n"
-            "Comandos:\n"
+            f"Status do Bot: {estado}\\n"
+            f"Mercados monitorados: {len(mercados)}\\n"
+            f"Filtro de Aposta: ${config.MIN_BET_AMOUNT}\\n"
+            f"Filtro de Oscilacao: {round(config.PRICE_SPIKE_THRESHOLD * 100, 2)}%\\n"
+            f"Alertas de Baleias: {baleias}\\n"
+            f"Mercados por esporte:\\n{resumo_esportes}\\n\\n"
+            "Comandos:\\n"
             "/start - Ligar monitor\n"
             "/stop - Desligar monitor\n"
             "/status - Ver status\n"
