@@ -211,7 +211,13 @@ async def loop_odds_value():
                 continue
             mercados_atuais = monitor_instance.markets if monitor_instance else None
             await check_arbitrage(mercados_atuais)
-            await asyncio.sleep(config.ODDS_CHECK_INTERVAL)
+            # Interrompe a espera se o monitor for desligado; ao religar,
+            # a verificação volta a ocorrer sem aguardar o intervalo inteiro.
+            restante = max(1, config.ODDS_CHECK_INTERVAL)
+            while monitor_ativo and restante > 0:
+                passo = min(5, restante)
+                await asyncio.sleep(passo)
+                restante -= passo
         except asyncio.CancelledError:
             raise
         except Exception as e:
