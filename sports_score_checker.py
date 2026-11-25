@@ -14,6 +14,16 @@ conectado = False
 CACHE_TTL = 21600
 
 
+def _as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    return False
+
+
 def armazenar_update(data):
     chaves = []
 
@@ -34,8 +44,8 @@ def armazenar_update(data):
         "score": data.get("score", ""),
         "period": data.get("period", ""),
         "elapsed": data.get("elapsed", ""),
-        "live": bool(data.get("live", False)),
-        "ended": bool(data.get("ended", False)),
+        "live": _as_bool(data.get("live", False)),
+        "ended": _as_bool(data.get("ended", False)),
         "_received": agora,
     }
 
@@ -112,8 +122,9 @@ def obter_placar(chave):
     if registro is None:
         return None
 
-    # Não mostrar um placar ao vivo antigo como se fosse atual.
+    # Não mostrar placares antigos e remover entradas expiradas do cache.
     if time.monotonic() - registro["_received"] > 120:
+        placares.pop(str(chave), None)
         return None
 
     return dict(registro)
