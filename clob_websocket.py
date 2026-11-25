@@ -106,6 +106,23 @@ class PolymarketMonitor:
             "updated_at": time.monotonic(),
         }
 
+    def update_best_quotes(self, data):
+        changes = data.get("price_changes") or [data]
+        for change in changes:
+            token_id = str(change.get("asset_id") or "")
+            book = self.order_books.get(token_id)
+            if not book:
+                continue
+            if "best_bid" in change:
+                value = self.parse_float(change.get("best_bid"), None)
+                book["best_bid"] = value if value is not None and 0 < value < 1 else None
+            if "best_ask" in change:
+                value = self.parse_float(change.get("best_ask"), None)
+                book["best_ask"] = value if value is not None and 0 < value < 1 else None
+            bid, ask = book["best_bid"], book["best_ask"]
+            book["spread"] = ask - bid if bid is not None and ask is not None else None
+            book["updated_at"] = time.monotonic()
+
     def formatar_book(self, token_id):
         book = self.order_books.get(str(token_id))
         if not book or time.monotonic() - book["updated_at"] > 120:
@@ -225,6 +242,8 @@ class PolymarketMonitor:
                                 event_type = ev.get("event_type")
                                 if event_type == "book":
                                     self.update_order_book(ev)
+                                elif event_type == "price_change":
+                                    self.update_best_quotes(ev)
                                 elif event_type == "last_trade_price":
                                     await self.handle_trade(ev)
 
