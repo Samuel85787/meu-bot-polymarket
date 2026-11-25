@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import json
 import math
 import re
 import time
@@ -275,12 +276,12 @@ async def check_sport_arbitrage(session, sport_key, sport_name, pm_markets):
                 return
             for game in odds_data:
                 if isinstance(game, dict) and game.get("bookmakers"):
-                    await process_game(game, pm_markets, sport_name)
+                    await process_game(game, pm_markets, sport_name, session)
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
         logger.warning("Falha ao consultar %s: %s", sport_name, type(exc).__name__)
 
 
-async def process_game(game, pm_markets, sport_name):
+async def process_game(game, pm_markets, sport_name, session=None):
     try:
         pinnacle = next(
             (book for book in game.get("bookmakers", [])
@@ -312,13 +313,112 @@ async def process_game(game, pm_markets, sport_name):
             ):
                 continue
             await check_outcomes(
-                game, pinnacle_market, pm_market, home_team, away_team
+                game, pinnacle_market, pm_market, home_team, away_team, session
             )
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         logger.warning("Erro ao processar partida: %s", type(exc).__name__)
 
 
-async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team):
+def find_pm_token_id(pm_market, target_side, yes_side, home_team, away_team):
+    outcomes, tokens = pm_market.get("outcomes", []), pm_market.get("clobTokenIds", [])
+    for index, outcome in enumerate(outcomes):
+        if index < len(tokens) and _resolve_side(outcome, home_team, away_team) == target_side:
+            return str(tokens[index])
+    normalized = [normalize_team_name(value) for value in outcomes]
+    if "yes" in normalized and "no" in normalized and yes_side:
+        index = normalized.index("yes" if target_side == yes_side else "no")
+        if index < len(tokens):
+            return str(tokens[index])
+    return None
+
+
+def _fee_schedule(pm_market):
+    schedule = pm_market.get("feeSchedule") or pm_market.get("fee_schedule")
+    if isinstance(schedule, str):
+        try:
+            schedule = json.loads(schedule)
+        except (TypeError, ValueError):
+            return None
+    if isinstance(schedule, dict):
+        try:
+            rate = float(schedule.get("rate"))
+            exponent = float(schedule.get("exponent", 1))
+        except (TypeError, ValueError):
+            return None
+        if math.isfinite(rate) and math.isfinite(exponent) and rate >= 0 and exponent >= 0:
+            return {"rate": rate, "exponent": exponent}
+        return None
+    if pm_market.get("feesEnabled") is False or str(pm_market.get("feesEnabled", "")).lower() == "false":
+        return {"rate": 0.0, "exponent": 1.0}
+    return None
+
+
+def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
+    if not 0 < fair_prob < 1 or stake_usd <= 0 or not fee_schedule:
+        return None
+    rate, exponent = fee_schedule["rate"], fee_schedule["exponent"]
+    remaining = float(stake_usd)
+    cost = gross_shares = fee_usd = 0.0
+    best_ask = best_bid = None
+    for level in book.get("asks", []):
+        try:
+            price, size = float(level["price"]), float(level["size"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (0 < price < 1) or not math.isfinite(size) or size <= 0:
+            continue
+        if best_ask is None:
+            best_ask = price
+        fill_cost = min(remaining, price * size)
+        shares = fill_cost / price
+        cost += fill_cost
+        gross_shares += shares
+        fee_usd += shares * rate * (price * (1 - price)) ** exponent
+        remaining -= fill_cost
+        if remaining <= 1e-8:
+            break
+    for level in book.get("bids", []):
+        try:
+            price, size = float(level["price"]), float(level["size"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0 < price < 1 and size > 0 and math.isfinite(size):
+            best_bid = max(best_bid or 0, price)
+    if remaining > 1e-6 or gross_shares <= 0 or cost <= 0:
+        return None
+    average_price = cost / gross_shares
+    net_shares = gross_shares - fee_usd / average_price
+    net_profit = fair_prob * net_shares - cost
+    spread_pct = (((best_ask - best_bid) / ((best_ask + best_bid) / 2)) * 100
+                  if best_ask is not None and best_bid is not None and best_ask > best_bid else 0.0)
+    slippage_pct = ((average_price / best_ask) - 1) * 100 if best_ask else 0.0
+    return {
+        "stake_usd": cost, "average_price": average_price, "best_ask": best_ask,
+        "best_bid": best_bid, "spread_pct": spread_pct, "slippage_pct": slippage_pct,
+        "fee_usd": fee_usd, "gross_shares": gross_shares, "net_shares": net_shares,
+        "net_profit_usd": net_profit, "net_ev_pct": net_profit / cost * 100,
+    }
+
+
+async def _estimate_market_ev(session, token_id, fair_prob, pm_market, stake_usd):
+    schedule = _fee_schedule(pm_market)
+    if schedule is None:
+        logger.info("FeeSchedule indisponivel; EV ignorado para mercado %s", pm_market.get("id"))
+        return None
+    try:
+        async with session.get(config.CLOB_BASE_URL + "/book", params={"token_id": token_id}) as resp:
+            if resp.status != 200:
+                return None
+            book = await resp.json()
+        if not isinstance(book, dict):
+            return None
+        return calcular_ev_liquido(fair_prob, book, schedule, stake_usd)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError) as exc:
+        logger.warning("Falha ao calcular EV no CLOB: %s", type(exc).__name__)
+        return None
+
+
+async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team, session=None):
     fair_map = calcular_probabilidades_sem_vig(pinnacle_market.get("outcomes", []))
     if not fair_map:
         return
@@ -328,23 +428,22 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team)
         side = _resolve_side(info["name"], home_team, away_team)
         if side is None:
             continue
-        pm_price = find_pm_price(pm_market, side, yes_side, home_team, away_team)
-        if pm_price is None or not 0 < pm_price < 1:
+        token_id = find_pm_token_id(pm_market, side, yes_side, home_team, away_team)
+        if not token_id or session is None:
             continue
-
         fair_prob = info["fair_prob"]
-        edge_points = (fair_prob - pm_price) * 100
-        if edge_points < config.ODDS_EDGE_THRESHOLD * 100:
+        ev_data = await _estimate_market_ev(
+            session, token_id, fair_prob, pm_market, config.ODDS_ESTIMATED_STAKE_USD
+        )
+        if ev_data is None or ev_data["net_ev_pct"] < config.ODDS_EDGE_THRESHOLD * 100:
             continue
-
         key = f"{game.get('id', '')}:{normalize_team_name(info['name'])}:{pm_market.get('conditionId', pm_market.get('id', ''))}"
         now = time.monotonic()
         last_alert = _last_odds_alert.get(key)
         if last_alert is not None and now - last_alert < config.ODDS_COOLDOWN_SECONDS:
             continue
-        # Só inicia o cooldown quando o Telegram confirma o envio.
         enviado = await send_arbitrage_alert(
-            game, info, info["odds"], fair_prob, pm_price, pm_market
+            game, info, info["odds"], fair_prob, ev_data, pm_market
         )
         if enviado:
             _last_odds_alert[key] = now
@@ -377,24 +476,24 @@ def find_pm_price(pm_market, target_side, yes_side, home_team, away_team):
     return None
 
 
-async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, pm_price, pm_market):
+async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm_market):
     try:
         slug = pm_market.get("slug")
         link = (
             config.POLYMARKET_BASE_URL + "/event/" + slug
             if slug else config.POLYMARKET_BASE_URL
         )
-        edge_points = (fair_prob - pm_price) * 100
-        ev_percent = ((fair_prob / pm_price) - 1) * 100 if pm_price > 0 else 0
         message = (
-            "ODDS VALUE DETECTADO\n"
-            f"Evento: {game.get('home_team', '')} vs {game.get('away_team', '')}\n"
-            f"{formatar_contexto_mercado(pm_market)}\n"
-            f"Seleção: {info['name']}\n"
-            f"Pinnacle sem margem: {fair_prob * 100:.1f}% (odd {pinnacle_odds:.2f})\n"
-            f"Polymarket: {pm_price * 100:.1f}% (odd {1 / pm_price:.2f})\n"
-            f"Diferença: {edge_points:.1f} pontos percentuais\n"
-            f"EV bruto estimado: {ev_percent:+.1f}% (sem taxas, spread e slippage)\n"
+            "ODDS VALUE - EV LIQUIDO\\n"
+            f"Evento: {game.get('home_team', '')} vs {game.get('away_team', '')}\\n"
+            f"{formatar_contexto_mercado(pm_market)}\\n"
+            f"Seleção: {info['name']}\\n"
+            f"Pinnacle sem margem: {fair_prob * 100:.1f}% (odd {pinnacle_odds:.2f})\\n"
+            f"Compra estimada: ${ev_data['stake_usd']:.2f} a ${ev_data['average_price']:.4f} por share\\n"
+            f"Melhor bid/ask: {ev_data['best_bid'] if ev_data['best_bid'] is not None else '—'} / {ev_data['best_ask']:.4f}\\n"
+            f"Spread: {ev_data['spread_pct']:.2f}% | Slippage: {ev_data['slippage_pct']:.2f}%\\n"
+            f"Taxa estimada: ${ev_data['fee_usd']:.4f}\\n"
+            f"EV líquido: {ev_data['net_ev_pct']:+.2f}% (${ev_data['net_profit_usd']:+.2f})\\n"
             f"Link: {link}"
         )
         enviado = await send_alert(message)
