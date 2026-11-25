@@ -116,30 +116,30 @@ async def fetch_active_markets():
                     break
                 consultas_ok += 1
 
-                    for original in lote:
-                        if not isinstance(original, dict):
-                            continue
+                for original in lote:
+                    if not isinstance(original, dict):
+                        continue
 
-                        try:
-                            mercado = normalizar_mercado(original, esporte)
-                        except (ValueError, TypeError):
-                            logger.warning("Mercado invalido: %s", original.get("id"))
-                            continue
+                    try:
+                        mercado = normalizar_mercado(original, esporte)
+                    except (ValueError, TypeError):
+                        logger.warning("Mercado invalido: %s", original.get("id"))
+                        continue
 
-                        if mercado is None:
-                            continue
+                    if mercado is None:
+                        continue
 
-                        identificador = str(mercado.get("id") or mercado.get("conditionId") or "")
+                    identificador = str(mercado.get("id") or mercado.get("conditionId") or "")
 
-                        if identificador and identificador not in encontrados:
-                            encontrados[identificador] = mercado
-                            recebidos += 1
+                    if identificador and identificador not in encontrados:
+                        encontrados[identificador] = mercado
+                        recebidos += 1
 
-                        if recebidos >= limite:
-                            break
-
-                    if recebidos >= limite or len(lote) < 100:
+                    if recebidos >= limite:
                         break
+
+                if recebidos >= limite or len(lote) < 100:
+                    break
 
             logger.info("%s: %s mercados", esporte, recebidos)
 
