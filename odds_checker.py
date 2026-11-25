@@ -1,67 +1,224 @@
 import asyncio
 import logging
+import math
+import re
 import time
+import unicodedata
+from datetime import datetime, timezone
 
 import aiohttp
 import config
-from gamma_api import fetch_active_markets
-from telegram_notifier import send_alert
 from market_context import formatar_contexto_mercado
+from telegram_notifier import send_alert
 
 logger = logging.getLogger(__name__)
 
-SPORTS_KEYS = {
-    "basketball_nba": "NBA",
-    "americanfootball_nfl": "NFL",
-}
-
+ODDS_API_BASE = "https://api.the-odds-api.com/v4"
+SUPPORTED_SPORTS = ("NBA", "NFL", "Tênis ATP", "Tênis WTA", "CS2", "VALORANT")
+SPORT_CACHE_SECONDS = 21600
+_sports_cache = []
+_sports_cache_at = 0.0
 _last_odds_alert = {}
 
 
 def normalize_team_name(name):
-    import re
-    import unicodedata
     value = unicodedata.normalize("NFKD", str(name or "").lower())
     value = "".join(c for c in value if not unicodedata.combining(c))
     return " ".join(re.findall(r"[a-z0-9]+", value))
 
 
-def teams_match(home_team, away_team, question):
-    """Correspondência conservadora: exige os nomes completos no título."""
-    q = f" {normalize_team_name(question)} "
-    home = f" {normalize_team_name(home_team)} "
-    away = f" {normalize_team_name(away_team)} "
-    return bool(home.strip() and away.strip() and home in q and away in q)
+def _sport_for_key(sport):
+    key = normalize_team_name(sport.get("key", ""))
+    title = normalize_team_name(sport.get("title", ""))
+    text = f"{key} {title}"
+
+    if key == "basketball nba" or "nba" in text:
+        return "NBA"
+    if key == "americanfootball nfl" or "nfl" in text:
+        return "NFL"
+    if "tennis" in text and "atp" in text:
+        return "Tênis ATP"
+    if "tennis" in text and "wta" in text:
+        return "Tênis WTA"
+    if any(term in text for term in ("counter strike", "counterstrike", "csgo", "cs2")):
+        return "CS2"
+    if "valorant" in text:
+        return "VALORANT"
+    return None
+
+
+async def discover_supported_sports(session):
+    """Descobre os sport keys efetivamente disponibilizados pela conta da Odds API."""
+    global _sports_cache, _sports_cache_at
+    now = time.monotonic()
+    if _sports_cache and now - _sports_cache_at < SPORT_CACHE_SECONDS:
+        return list(_sports_cache)
+
+    url = f"{ODDS_API_BASE}/sports/"
+    params = {"apiKey": config.ODDS_API_KEY, "all": "true"}
+    try:
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                logger.warning("Odds API sports discovery: HTTP %s", resp.status)
+                return list(_sports_cache)
+            payload = await resp.json()
+            if not isinstance(payload, list):
+                return list(_sports_cache)
+
+        discovered = {}
+        for item in payload:
+            if not isinstance(item, dict) or not item.get("active", True):
+                continue
+            category = _sport_for_key(item)
+            key = str(item.get("key") or "").strip()
+            if category in SUPPORTED_SPORTS and key:
+                discovered.setdefault(category, []).append(key)
+
+        _sports_cache = [
+            (key, category)
+            for category in SUPPORTED_SPORTS
+            for key in discovered.get(category, [])
+        ]
+        _sports_cache_at = now
+        for category in SUPPORTED_SPORTS:
+            if not discovered.get(category):
+                logger.info("Odds API sem feed ativo identificado para %s", category)
+        return list(_sports_cache)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+        logger.warning("Falha ao descobrir esportes na Odds API: %s", type(exc).__name__)
+        return list(_sports_cache)
+
+
+def _market_text(pm_market):
+    events = pm_market.get("events") or []
+    event_text = " ".join(
+        str(event.get(field) or "")
+        for event in events if isinstance(event, dict)
+        for field in ("title", "name", "slug")
+    )
+    return " ".join(
+        str(value or "")
+        for value in (
+            pm_market.get("question"), pm_market.get("slug"),
+            pm_market.get("description"), event_text,
+        )
+    )
+
+
+def _contains_team(text, team):
+    normalized_text = f" {normalize_team_name(text)} "
+    normalized_team = normalize_team_name(team)
+    return bool(normalized_team and f" {normalized_team} " in normalized_text)
+
+
+def _parse_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _market_start_time(pm_market):
+    events = pm_market.get("events") or []
+    candidates = [
+        pm_market.get("startDate"), pm_market.get("startTime"),
+        pm_market.get("gameStartTime"),
+    ]
+    for event in events:
+        if isinstance(event, dict):
+            candidates.extend((event.get("startDate"), event.get("startTime"), event.get("gameStartTime")))
+    for candidate in candidates:
+        parsed = _parse_datetime(candidate)
+        if parsed:
+            return parsed
+    return None
+
+
+def teams_match(home_team, away_team, question, pm_market=None, commence_time=None):
+    """Só associa partidas com evidência textual e, quando disponível, temporal."""
+    market = pm_market or {"question": question}
+    text = _market_text(market)
+    home_found = _contains_team(text, home_team)
+    away_found = _contains_team(text, away_team)
+    if home_found and away_found:
+        return True
+    if not (home_found or away_found):
+        return False
+
+    outcomes = {normalize_team_name(value) for value in market.get("outcomes", [])}
+    if not outcomes.intersection({"yes", "no"}):
+        return False
+
+    market_time = _market_start_time(market)
+    game_time = _parse_datetime(commence_time)
+    if not market_time or not game_time:
+        return False
+    return abs((market_time - game_time).total_seconds()) <= 24 * 60 * 60
+
+
+def _resolve_side(outcome_name, home_team, away_team):
+    outcome = normalize_team_name(outcome_name)
+    home = normalize_team_name(home_team)
+    away = normalize_team_name(away_team)
+    if outcome == home or (home and f" {home} " in f" {outcome} "):
+        return "home"
+    if outcome == away or (away and f" {away} " in f" {outcome} "):
+        return "away"
+    return None
+
+
+def _infer_yes_side(pm_market, home_team, away_team):
+    text = str(pm_market.get("question") or "")
+    home_found = _contains_team(text, home_team)
+    away_found = _contains_team(text, away_team)
+    if home_found != away_found:
+        return "home" if home_found else "away"
+
+    normalized = normalize_team_name(text)
+    # Em perguntas binárias com ambos os participantes, o primeiro nome após
+    # "will" normalmente é a seleção afirmativa. Se não for inequívoco, não aposta.
+    match = re.search(r"\bwill\s+(.+?)\s+(?:win|beat|defeat)\b", normalized)
+    if match:
+        subject = match.group(1)
+        if normalize_team_name(home_team) in subject:
+            return "home"
+        if normalize_team_name(away_team) in subject:
+            return "away"
+    return None
 
 
 def calcular_probabilidades_sem_vig(outcomes):
-    """Remove o overround (margem) somando 1/odd de todos os desfechos."""
+    """Normaliza probabilidades implícitas, removendo a margem da casa."""
     implicadas = {}
     soma_inversa = 0.0
-
-    for item in outcomes:
+    for item in outcomes or []:
         nome = str(item.get("name", "")).strip()
         try:
             odd = float(item.get("price", 0))
         except (TypeError, ValueError):
             continue
-        if odd > 1.0:
-            p = 1.0 / odd
-            implicadas[nome] = (odd, p)
-            soma_inversa += p
+        if not nome or not math.isfinite(odd) or odd <= 1.0:
+            continue
+        probabilidade = 1.0 / odd
+        implicadas[normalize_team_name(nome)] = (nome, odd, probabilidade)
+        soma_inversa += probabilidade
 
     if soma_inversa <= 0:
         return {}
-
-    justas = {}
-    for nome, (odd, p) in implicadas.items():
-        justas[nome.lower()] = {
+    return {
+        chave: {
             "name": nome,
             "odds": odd,
-            "raw_prob": p,
-            "fair_prob": p / soma_inversa,
+            "raw_prob": probabilidade,
+            "fair_prob": probabilidade / soma_inversa,
         }
-    return justas
+        for chave, (nome, odd, probabilidade) in implicadas.items()
+    }
 
 
 async def check_arbitrage(pm_markets=None):
@@ -69,165 +226,169 @@ async def check_arbitrage(pm_markets=None):
         logger.warning("ODDS_API_KEY nao configurada")
         return
 
-    logger.info("Verificando Odds Value")
-
     try:
         if pm_markets is None:
+            from gamma_api import fetch_active_markets
             pm_markets = await fetch_active_markets()
-    except Exception as e:
-        logger.error("Erro ao buscar mercados: %s", e)
+    except Exception as exc:
+        logger.error("Erro ao buscar mercados Polymarket: %s", type(exc).__name__)
         return
 
-    pm_dict = {}
-    for m in pm_markets:
-        question_normalized = normalize_team_name(m.get("question", ""))
-        if question_normalized:
-            pm_dict[question_normalized] = m
-
-    timeout = aiohttp.ClientTimeout(total=20)
+    timeout = aiohttp.ClientTimeout(total=25, connect=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        for sport_key, sport_name in SPORTS_KEYS.items():
+        sports = await discover_supported_sports(session)
+        if not sports:
+            logger.warning("Nenhum esporte suportado disponível na Odds API nesta conta")
+            return
+        for sport_key, sport_name in sports:
             try:
-                await check_sport_arbitrage(session, sport_key, sport_name, pm_dict)
-            except Exception as e:
-                logger.error("Erro em %s: %s", sport_name, e)
-            await asyncio.sleep(2)
+                await check_sport_arbitrage(session, sport_key, sport_name, pm_markets or [])
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error("Erro em %s: %s", sport_name, type(exc).__name__)
+            await asyncio.sleep(1)
 
-    logger.info("Verificacao finalizada")
 
-
-async def check_sport_arbitrage(session, sport_key, sport_name, pm_dict):
-    url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
+async def check_sport_arbitrage(session, sport_key, sport_name, pm_markets):
+    url = f"{ODDS_API_BASE}/sports/{sport_key}/odds/"
     params = {
         "apiKey": config.ODDS_API_KEY,
         "regions": "eu",
         "bookmakers": "pinnacle",
         "markets": "h2h",
     }
-
     try:
         async with session.get(url, params=params) as resp:
             if resp.status != 200:
-                logger.error("Erro %s: HTTP %s", sport_name, resp.status)
+                logger.warning("Odds API %s: HTTP %s", sport_name, resp.status)
                 return
-
             odds_data = await resp.json()
             if not isinstance(odds_data, list):
+                logger.warning("Resposta inesperada da Odds API para %s", sport_name)
                 return
-
             for game in odds_data:
-                if not isinstance(game, dict) or not game.get("bookmakers"):
-                    continue
-                await process_game(game, pm_dict, sport_name)
-
-    except Exception as e:
-        logger.error("Falha %s: %s", sport_name, e)
+                if isinstance(game, dict) and game.get("bookmakers"):
+                    await process_game(game, pm_markets, sport_name)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+        logger.warning("Falha ao consultar %s: %s", sport_name, type(exc).__name__)
 
 
-async def process_game(game, pm_dict, sport_name):
+async def process_game(game, pm_markets, sport_name):
     try:
         pinnacle = next(
-            (b for b in game.get("bookmakers", []) if str(b.get("key", "")).lower() == "pinnacle"),
+            (book for book in game.get("bookmakers", [])
+             if str(book.get("key", "")).lower() == "pinnacle"),
             None,
         )
-        if not pinnacle or not pinnacle.get("markets"):
+        if not pinnacle:
+            return
+        pinnacle_market = next(
+            (item for item in pinnacle.get("markets", []) if item.get("key") == "h2h"),
+            None,
+        )
+        if not pinnacle_market:
             return
 
-        market = pinnacle["markets"][0]
-        home_team = normalize_team_name(game.get("home_team", ""))
-        away_team = normalize_team_name(game.get("away_team", ""))
+        home_team = str(game.get("home_team") or "")
+        away_team = str(game.get("away_team") or "")
+        if not home_team or not away_team:
+            return
 
-        for question, pm_market in pm_dict.items():
+        for pm_market in pm_markets:
             if pm_market.get("_sport") != sport_name:
                 continue
             if str(pm_market.get("sportsMarketType", "")).lower() != "moneyline":
                 continue
-            if not teams_match(home_team, away_team, question):
+            if not teams_match(
+                home_team, away_team, pm_market.get("question", ""),
+                pm_market, game.get("commence_time"),
+            ):
                 continue
-            participants = {normalize_team_name(x) for x in pm_market.get("outcomes", [])}
-            expected = {normalize_team_name(home_team), normalize_team_name(away_team)}
-            if len(participants) >= 2 and not expected.issubset(participants):
-                continue
-            await check_outcomes(game, market, pm_market, home_team, away_team)
-
-    except (KeyError, IndexError, TypeError) as e:
-        logger.warning("Erro ao processar jogo: %s", e)
+            await check_outcomes(
+                game, pinnacle_market, pm_market, home_team, away_team
+            )
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        logger.warning("Erro ao processar partida: %s", type(exc).__name__)
 
 
 async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team):
-    try:
-        fair_map = calcular_probabilidades_sem_vig(pinnacle_market.get("outcomes", []))
-        if not fair_map:
-            return
+    fair_map = calcular_probabilidades_sem_vig(pinnacle_market.get("outcomes", []))
+    if not fair_map:
+        return
 
-        home_kw = home_team.split()[-1] if home_team else ""
-        away_kw = away_team.split()[-1] if away_team else ""
+    yes_side = _infer_yes_side(pm_market, home_team, away_team)
+    for info in fair_map.values():
+        side = _resolve_side(info["name"], home_team, away_team)
+        if side is None:
+            continue
+        pm_price = find_pm_price(pm_market, side, yes_side, home_team, away_team)
+        if pm_price is None or not 0 < pm_price < 1:
+            continue
 
-        for _, info in fair_map.items():
-            team_name = info["name"].lower()
-            fair_prob = info["fair_prob"]
-            pinnacle_odds = info["odds"]
+        fair_prob = info["fair_prob"]
+        edge_points = (fair_prob - pm_price) * 100
+        if edge_points < config.ODDS_EDGE_THRESHOLD * 100:
+            continue
 
-            is_home = bool(home_kw and home_kw in team_name)
-            is_away = bool(away_kw and away_kw in team_name)
-
-            pm_price = find_pm_price(pm_market, is_home, is_away, home_team, away_team)
-            if pm_price is None or pm_price <= 0 or pm_price >= 1:
-                continue
-
-            if pm_price < (fair_prob - config.ODDS_EDGE_THRESHOLD):
-                chave = f"{game.get('id', '')}_{team_name}"
-                agora = time.time()
-                if agora - _last_odds_alert.get(chave, 0) < config.ODDS_COOLDOWN_SECONDS:
-                    continue
-                _last_odds_alert[chave] = agora
-
-                await send_arbitrage_alert(
-                    game, info, pinnacle_odds, fair_prob, pm_price, pm_market
-                )
-
-    except (KeyError, ValueError, IndexError) as e:
-        logger.warning("Erro outcomes: %s", e)
+        key = f"{game.get('id', '')}:{normalize_team_name(info['name'])}:{pm_market.get('conditionId', pm_market.get('id', ''))}"
+        now = time.monotonic()
+        if now - _last_odds_alert.get(key, 0) < config.ODDS_COOLDOWN_SECONDS:
+            continue
+        _last_odds_alert[key] = now
+        await send_arbitrage_alert(
+            game, info, info["odds"], fair_prob, pm_price, pm_market
+        )
 
 
-def find_pm_price(pm_market, is_home, is_away, home_team, away_team):
-    try:
-        home_kw = normalize_team_name(home_team).split()[-1] if home_team else ""
-        away_kw = normalize_team_name(away_team).split()[-1] if away_team else ""
-        prices = pm_market.get("outcomePrices", [])
+def find_pm_price(pm_market, target_side, yes_side, home_team, away_team):
+    outcomes = pm_market.get("outcomes", [])
+    prices = pm_market.get("outcomePrices", [])
+    for index, outcome in enumerate(outcomes):
+        if index >= len(prices):
+            continue
+        side = _resolve_side(outcome, home_team, away_team)
+        if side == target_side:
+            try:
+                price = float(prices[index])
+                return price if math.isfinite(price) else None
+            except (TypeError, ValueError):
+                return None
 
-        for i, pm_outcome_name in enumerate(pm_market.get("outcomes", [])):
-            pm_outcome_normalized = normalize_team_name(pm_outcome_name)
-            if (is_home and home_kw and home_kw in pm_outcome_normalized) or (
-                is_away and away_kw and away_kw in pm_outcome_normalized
-            ):
-                if i < len(prices):
-                    return float(prices[i])
-        return None
-    except (IndexError, ValueError) as e:
-        logger.warning("Erro ao encontrar preco: %s", e)
-        return None
+    normalized_outcomes = [normalize_team_name(value) for value in outcomes]
+    if "yes" in normalized_outcomes and "no" in normalized_outcomes and yes_side:
+        yes_index = normalized_outcomes.index("yes")
+        no_index = normalized_outcomes.index("no")
+        selected_index = yes_index if target_side == yes_side else no_index
+        try:
+            price = float(prices[selected_index])
+            return price if math.isfinite(price) else None
+        except (IndexError, TypeError, ValueError):
+            return None
+    return None
 
 
 async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, pm_price, pm_market):
     try:
-        link = config.POLYMARKET_BASE_URL + "/event/" + pm_market.get("slug", "")
+        slug = pm_market.get("slug")
+        link = (
+            config.POLYMARKET_BASE_URL + "/event/" + slug
+            if slug else config.POLYMARKET_BASE_URL
+        )
         edge_points = (fair_prob - pm_price) * 100
         ev_percent = ((fair_prob / pm_price) - 1) * 100 if pm_price > 0 else 0
-        market_context = formatar_contexto_mercado(pm_market)
-
-        msg = (
+        message = (
             "ODDS VALUE DETECTADO\n"
             f"Evento: {game.get('home_team', '')} vs {game.get('away_team', '')}\n"
-            f"{market_context}\n"
+            f"{formatar_contexto_mercado(pm_market)}\n"
             f"Seleção: {info['name']}\n"
-            f"Pinnacle sem margem: {round(fair_prob * 100, 1)}% (Odd {round(pinnacle_odds, 2)})\n"
-            f"Polymarket: {round(pm_price * 100, 1)}% (Odd {round(1 / pm_price, 2)})\n"
-            f"Diferença: {round(edge_points, 1)} pontos percentuais\n"
-            f"EV bruto estimado: {ev_percent:+.1f}% (antes de taxas, spread e slippage)\n"
+            f"Pinnacle sem margem: {fair_prob * 100:.1f}% (odd {pinnacle_odds:.2f})\n"
+            f"Polymarket: {pm_price * 100:.1f}% (odd {1 / pm_price:.2f})\n"
+            f"Diferença: {edge_points:.1f} pontos percentuais\n"
+            f"EV bruto estimado: {ev_percent:+.1f}% (sem taxas, spread e slippage)\n"
             f"Link: {link}"
         )
-        await send_alert(msg)
-        logger.info("Oportunidade: %s", info["name"])
-    except Exception as e:
-        logger.error("Erro ao enviar alerta arbitrage: %s", e)
+        await send_alert(message)
+        logger.info("Oportunidade Odds Value: %s", info["name"])
+    except Exception as exc:
+        logger.error("Erro ao enviar alerta Odds Value: %s", type(exc).__name__)
