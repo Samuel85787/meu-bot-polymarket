@@ -12,6 +12,7 @@ from odds_checker import check_arbitrage
 from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
 from alert_history import initialize as inicializar_historico, get_metrics, update_resolutions
+from health_status import set_service, format_status
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ async def escutar_telegram():
     offset = 0
     logger.info("Listener Telegram ativo")
 
+    set_service('telegram_listener', 'ok', 'iniciado')
     timeout = aiohttp.ClientTimeout(total=35)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         while True:
@@ -80,6 +82,7 @@ async def escutar_telegram():
                         continue
 
                     data = await resp.json()
+                    set_service('telegram_listener', 'ok', 'polling ativo' if data.get('ok') else 'resposta inesperada')
 
                     if data.get("result"):
                         for update in data["result"]:
@@ -105,6 +108,7 @@ async def escutar_telegram():
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                set_service("telegram_listener", "error", type(e).__name__)
                 logger.error("Erro listener: %s", type(e).__name__)
                 await asyncio.sleep(5)
 
@@ -151,6 +155,7 @@ async def processar_comando(texto):
 
     elif texto in ["/status", "/help", "/ajuda"]:
         estado = "Ligado" if monitor_ativo else "Desligado"
+        diagnostico = format_status()
         baleias = "Ligado" if config.ENABLE_WHALE_ALERTS else "Desligado"
         mercados = monitor_instance.markets if monitor_instance else []
         contagem = {esporte: 0 for esporte in config.SPORT_TAGS}
@@ -165,6 +170,7 @@ async def processar_comando(texto):
         msg = (
             f"Status do Bot: {estado}\\n"
             f"Mercados monitorados: {len(mercados)}\\n"
+            f"\\nSAÚDE DOS SERVIÇOS\\n{diagnostico}\\n\\n"
             f"Filtro de Aposta: ${config.MIN_BET_AMOUNT}\\n"
             f"Filtro de Oscilacao: {round(config.PRICE_SPIKE_THRESHOLD * 100, 2)}%\\n"
             f"Alertas de Baleias: {baleias}\\n"
@@ -237,12 +243,14 @@ async def loop_alert_history():
     while True:
         try:
             atualizados = await update_resolutions()
+            set_service("alert_history", "ok", f"{atualizados} resultados atualizados")
             if atualizados:
                 logger.info("Resultados de alertas atualizados: %s", atualizados)
             await asyncio.sleep(300)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            set_service("alert_history", "error", type(exc).__name__)
             logger.warning("Erro ao atualizar histórico: %s", type(exc).__name__)
             await asyncio.sleep(60)
 
