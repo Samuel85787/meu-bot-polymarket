@@ -104,7 +104,7 @@ async def escutar_telegram():
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                logger.error("Erro listener: %s", e)
+                logger.error("Erro listener: %s", type(e).__name__)
                 await asyncio.sleep(5)
 
 
