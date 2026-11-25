@@ -358,7 +358,7 @@ def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
         return None
     rate, exponent = fee_schedule["rate"], fee_schedule["exponent"]
     remaining = float(stake_usd)
-    cost = gross_shares = fee_usd = 0.0
+    cost = gross_shares = fee_usd = fee_shares = 0.0
     best_ask = best_bid = None
     for level in book.get("asks", []):
         try:
@@ -373,7 +373,9 @@ def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
         shares = fill_cost / price
         cost += fill_cost
         gross_shares += shares
-        fee_usd += shares * rate * (price * (1 - price)) ** exponent
+        level_fee_usd = shares * rate * (price * (1 - price)) ** exponent
+        fee_usd += level_fee_usd
+        fee_shares += level_fee_usd / price
         remaining -= fill_cost
         if remaining <= 1e-8:
             break
@@ -387,7 +389,7 @@ def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
     if remaining > 1e-6 or gross_shares <= 0 or cost <= 0:
         return None
     average_price = cost / gross_shares
-    net_shares = gross_shares - fee_usd / average_price
+    net_shares = gross_shares - fee_shares
     net_profit = fair_prob * net_shares - cost
     spread_pct = (((best_ask - best_bid) / ((best_ask + best_bid) / 2)) * 100
                   if best_ask is not None and best_bid is not None and best_ask > best_bid else 0.0)
@@ -484,16 +486,16 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             if slug else config.POLYMARKET_BASE_URL
         )
         message = (
-            "ODDS VALUE - EV LIQUIDO\\n"
-            f"Evento: {game.get('home_team', '')} vs {game.get('away_team', '')}\\n"
-            f"{formatar_contexto_mercado(pm_market)}\\n"
-            f"Seleção: {info['name']}\\n"
-            f"Pinnacle sem margem: {fair_prob * 100:.1f}% (odd {pinnacle_odds:.2f})\\n"
-            f"Compra estimada: ${ev_data['stake_usd']:.2f} a ${ev_data['average_price']:.4f} por share\\n"
-            f"Melhor bid/ask: {ev_data['best_bid'] if ev_data['best_bid'] is not None else '—'} / {ev_data['best_ask']:.4f}\\n"
-            f"Spread: {ev_data['spread_pct']:.2f}% | Slippage: {ev_data['slippage_pct']:.2f}%\\n"
-            f"Taxa estimada: ${ev_data['fee_usd']:.4f}\\n"
-            f"EV líquido: {ev_data['net_ev_pct']:+.2f}% (${ev_data['net_profit_usd']:+.2f})\\n"
+            "ODDS VALUE - EV LIQUIDO\n"
+            f"Evento: {game.get('home_team', '')} vs {game.get('away_team', '')}\n"
+            f"{formatar_contexto_mercado(pm_market)}\n"
+            f"Seleção: {info['name']}\n"
+            f"Pinnacle sem margem: {fair_prob * 100:.1f}% (odd {pinnacle_odds:.2f})\n"
+            f"Compra estimada: ${ev_data['stake_usd']:.2f} a ${ev_data['average_price']:.4f} por share\n"
+            f"Melhor bid/ask: {ev_data['best_bid'] if ev_data['best_bid'] is not None else '—'} / {ev_data['best_ask']:.4f}\n"
+            f"Spread: {ev_data['spread_pct']:.2f}% | Slippage: {ev_data['slippage_pct']:.2f}%\n"
+            f"Taxa estimada: ${ev_data['fee_usd']:.4f}\n"
+            f"EV líquido: {ev_data['net_ev_pct']:+.2f}% (${ev_data['net_profit_usd']:+.2f})\n"
             f"Link: {link}"
         )
         enviado = await send_alert(message)
