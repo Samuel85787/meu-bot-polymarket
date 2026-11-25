@@ -12,6 +12,7 @@ from gamma_api import fetch_active_markets
 from price_tracker import PriceTracker
 from sports_score_checker import obter_placar_mercado
 from telegram_notifier import send_alert
+from market_context import formatar_contexto_mercado
 
 logger = logging.getLogger(__name__)
 
@@ -244,8 +245,9 @@ class PolymarketMonitor:
 
             msg_text = (
                 f"{titulo}\n"
-                f"Jogo: {question}\n"
-                f"Palpite: {outcome_name}\n"
+                f"Evento: {question}\n"
+                f"{formatar_contexto_mercado(market)}\n"
+                f"Seleção: {outcome_name}\n"
                 f"Preco: {round(old_price, 4)} -> {round(new_price, 4)}\n"
                 f"Oscilacao: {round(pct * 100, 2)}%\n"
                 f"Liquidez: ${int(liquidez)}\n"

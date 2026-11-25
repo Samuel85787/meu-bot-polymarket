@@ -6,6 +6,7 @@ import aiohttp
 import config
 from gamma_api import fetch_active_markets
 from telegram_notifier import send_alert
+from market_context import formatar_contexto_mercado
 
 logger = logging.getLogger(__name__)
 
@@ -18,18 +19,19 @@ _last_odds_alert = {}
 
 
 def normalize_team_name(name):
-    return str(name or "").lower().strip()
+    import re
+    import unicodedata
+    value = unicodedata.normalize("NFKD", str(name or "").lower())
+    value = "".join(c for c in value if not unicodedata.combining(c))
+    return " ".join(re.findall(r"[a-z0-9]+", value))
 
 
 def teams_match(home_team, away_team, question):
-    q = normalize_team_name(question)
-    home_parts = [p for p in normalize_team_name(home_team).split() if len(p) > 2]
-    away_parts = [p for p in normalize_team_name(away_team).split() if len(p) > 2]
-
-    home_kw = home_parts[-1] if home_parts else normalize_team_name(home_team)
-    away_kw = away_parts[-1] if away_parts else normalize_team_name(away_team)
-
-    return bool(home_kw and away_kw and home_kw in q and away_kw in q)
+    """Correspondência conservadora: exige os nomes completos no título."""
+    q = f" {normalize_team_name(question)} "
+    home = f" {normalize_team_name(home_team)} "
+    away = f" {normalize_team_name(away_team)} "
+    return bool(home.strip() and away.strip() and home in q and away in q)
 
 
 def calcular_probabilidades_sem_vig(outcomes):
@@ -136,7 +138,15 @@ async def process_game(game, pm_dict):
         away_team = normalize_team_name(game.get("away_team", ""))
 
         for question, pm_market in pm_dict.items():
+            if pm_market.get("_sport") != sport_name:
+                continue
+            if str(pm_market.get("sportsMarketType", "")).lower() != "moneyline":
+                continue
             if not teams_match(home_team, away_team, question):
+                continue
+            participants = {normalize_team_name(x) for x in pm_market.get("outcomes", [])}
+            expected = {normalize_team_name(home_team), normalize_team_name(away_team)}
+            if len(participants) >= 2 and not expected.issubset(participants):
                 continue
             await check_outcomes(game, market, pm_market, home_team, away_team)
 
@@ -202,15 +212,19 @@ def find_pm_price(pm_market, is_home, is_away, home_team, away_team):
 async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, pm_price, pm_market):
     try:
         link = config.POLYMARKET_BASE_URL + "/event/" + pm_market.get("slug", "")
-        ev_advantage = (fair_prob - pm_price) * 100
+        edge_points = (fair_prob - pm_price) * 100
+        ev_percent = ((fair_prob / pm_price) - 1) * 100 if pm_price > 0 else 0
+        market_context = formatar_contexto_mercado(pm_market)
 
         msg = (
             "ODDS VALUE DETECTADO\n"
-            f"Jogo: {game.get('home_team', '')} vs {game.get('away_team', '')}\n"
-            f"Palpite: {info['name']}\n"
-            f"Pinnacle Justo (sem vig): {round(fair_prob * 100, 1)}% (Odd {round(pinnacle_odds, 2)})\n"
+            f"Evento: {game.get('home_team', '')} vs {game.get('away_team', '')}\n"
+            f"{market_context}\n"
+            f"Seleção: {info['name']}\n"
+            f"Pinnacle sem margem: {round(fair_prob * 100, 1)}% (Odd {round(pinnacle_odds, 2)})\n"
             f"Polymarket: {round(pm_price * 100, 1)}% (Odd {round(1 / pm_price, 2)})\n"
-            f"Vantagem (+EV): +{round(ev_advantage, 1)}%\n"
+            f"Diferença: {round(edge_points, 1)} pontos percentuais\n"
+            f"EV bruto estimado: {ev_percent:+.1f}% (antes de taxas, spread e slippage)\n"
             f"Link: {link}"
         )
         await send_alert(msg)
