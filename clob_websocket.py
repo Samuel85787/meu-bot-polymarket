@@ -56,6 +56,14 @@ class PolymarketMonitor:
 
         self.token_to_market = token_to_market
         self.token_to_outcome = token_to_outcome
+        active_tokens = set(token_to_market)
+        for token_id in list(self.order_books):
+            if token_id not in active_tokens:
+                self.order_books.pop(token_id, None)
+        for token_id in list(self.trade_history):
+            if token_id not in active_tokens:
+                self.trade_history.pop(token_id, None)
+        self.tracker.remove_tokens(active_tokens)
 
     def dentro_faixa_preco(self, price):
         if not config.FILTER_PRICE_RANGE:
@@ -149,9 +157,11 @@ class PolymarketMonitor:
             try:
                 await asyncio.sleep(config.MARKET_REFRESH_SECONDS)
                 novos_mercados = await fetch_active_markets()
-                if novos_mercados:
-                    self.update_markets(novos_mercados)
-                    await self.sync_subscriptions()
+                if novos_mercados is None:
+                    logger.warning("Atualizacao Gamma inconclusiva; mantendo mercados atuais")
+                    continue
+                self.update_markets(novos_mercados)
+                await self.sync_subscriptions()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -224,15 +234,17 @@ class PolymarketMonitor:
                         WS_URL,
                         ping_interval=20,
                         close_timeout=10,
+                        open_timeout=20,
                     ) as ws:
                         self._ws = ws
-                        assets = list(self.token_to_market.keys())
+                        assets = sorted(self.token_to_market.keys())
                         sub_msg = {
                             "type": "market",
                             "assets_ids": assets,
                             "initial_dump": True,
                         }
-                        await ws.send(json.dumps(sub_msg))
+                        if assets:
+                            await ws.send(json.dumps(sub_msg))
                         self._subscribed_assets = set(assets)
                         logger.info("Conectado ao CLOB (%s tokens)", len(assets))
                         self.connected = True
@@ -242,7 +254,7 @@ class PolymarketMonitor:
                                 continue
                             try:
                                 data = json.loads(raw)
-                            except json.JSONDecodeError:
+                            except (json.JSONDecodeError, TypeError):
                                 continue
                             events = data if isinstance(data, list) else [data]
                             for ev in events:
@@ -256,19 +268,22 @@ class PolymarketMonitor:
                                 elif event_type == "last_trade_price":
                                     await self.handle_trade(ev)
 
+                        logger.warning("Fluxo CLOB terminou; reconectando")
                 except asyncio.CancelledError:
                     raise
-                except websockets.exceptions.ConnectionClosed:
-                    logger.warning("Conexao WebSocket fechada")
-                    self.connected = False
-                    self._ws = None
-                    await asyncio.sleep(5)
                 except Exception as e:
-                    logger.error("Erro WebSocket: %s", e)
+                    logger.warning("Falha WebSocket CLOB: %s", type(e).__name__)
+                finally:
                     self.connected = False
                     self._ws = None
-                    await asyncio.sleep(5)
+                    self._subscribed_assets.clear()
+                    # Os snapshots pertencem à conexão anterior; aguardamos novo dump.
+                    self.order_books.clear()
+
+                await asyncio.sleep(5)
         finally:
+            self.connected = False
+            self._ws = None
             refresh_task.cancel()
             try:
                 await refresh_task
