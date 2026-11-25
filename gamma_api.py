@@ -5,6 +5,7 @@ import random
 
 import aiohttp
 import config
+from health_status import set_service
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +145,11 @@ async def fetch_active_markets():
             logger.info("%s: %s mercados", esporte, recebidos)
 
     if consultas_ok == 0:
+        set_service("gamma_api", "error", "nenhuma consulta concluída")
         logger.error("Gamma indisponivel em todos os esportes; preservando mercados atuais")
         return None
 
     mercados = list(encontrados.values())[:config.MAX_MARKETS_TO_MONITOR]
+    set_service("gamma_api", "ok", f"{len(mercados)} mercados; {consultas_ok} consultas")
     logger.info("Total: %s mercados", len(mercados))
     return mercados
