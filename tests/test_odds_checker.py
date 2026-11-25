@@ -5,6 +5,8 @@ from odds_checker import (
     find_pm_price,
     normalize_team_name,
     teams_match,
+    _infer_yes_side,
+    _sport_for_key,
 )
 
 
@@ -43,6 +45,23 @@ class OddsMatchingTests(unittest.TestCase):
         }
         self.assertEqual(find_pm_price(market, "home", "home", "Celtics", "Lakers"), 0.62)
         self.assertEqual(find_pm_price(market, "away", "home", "Celtics", "Lakers"), 0.38)
+
+    def test_binary_question_identifies_yes_selection(self):
+        market = {"question": "Will Boston Celtics win?", "outcomes": ["Yes", "No"]}
+        self.assertEqual(_infer_yes_side(market, "Boston Celtics", "Los Angeles Lakers"), "home")
+
+    def test_discovers_all_requested_sport_families(self):
+        samples = [
+            ({"key": "basketball_nba", "title": "NBA"}, "NBA"),
+            ({"key": "americanfootball_nfl", "title": "NFL"}, "NFL"),
+            ({"key": "tennis_atp_french_open", "title": "ATP French Open"}, "Tênis ATP"),
+            ({"key": "tennis_wta_french_open", "title": "WTA French Open"}, "Tênis WTA"),
+            ({"key": "esports_cs2", "title": "Counter-Strike 2"}, "CS2"),
+            ({"key": "esports_valorant", "title": "Valorant"}, "VALORANT"),
+        ]
+        for payload, expected in samples:
+            with self.subTest(expected=expected):
+                self.assertEqual(_sport_for_key(payload), expected)
 
     def test_removes_bookmaker_margin(self):
         fair = calcular_probabilidades_sem_vig([
