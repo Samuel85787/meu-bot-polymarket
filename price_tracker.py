@@ -4,7 +4,7 @@ from collections import defaultdict, deque
 
 
 class PriceTracker:
-    def __init__(self, threshold: float, window: int, min_samples: int = 2, alpha: float = 0.25):
+    def __init__(self, threshold: float, window: int, min_samples: int = 3, alpha: float = 0.25):
         self.threshold = threshold
         self.window = window
         self.min_samples = max(1, int(min_samples))
@@ -42,6 +42,12 @@ class PriceTracker:
 
         if len(dq) < self.min_samples or previous_ema <= 0:
             return None
+
+        # Exige que os últimos trades não estejam em direções opostas anulando o movimento.
+        if len(dq) >= 2:
+            ult_delta = dq[-1][1] - dq[-2][1]
+            if (price > previous_ema and ult_delta < 0) or (price < previous_ema and ult_delta > 0):
+                return None
 
         pct = (price - previous_ema) / previous_ema
 
