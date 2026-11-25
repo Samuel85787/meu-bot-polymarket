@@ -1,10 +1,9 @@
 import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import gamma_api
 from clob_websocket import PolymarketMonitor
-from price_tracker import PriceTracker
 from sports_score_checker import armazenar_update, obter_placar
 
 
@@ -38,7 +37,7 @@ class ResilienceTests(unittest.TestCase):
             FakeResponse(429, headers={"Retry-After": "0"}),
             FakeResponse(200, payload=[{"id": "market-1"}]),
         ])
-        with patch.object(gamma_api.asyncio, "sleep", new_callable=lambda: (lambda *_: asyncio.sleep(0))):
+        with patch.object(gamma_api.asyncio, "sleep", new=AsyncMock()):
             result = asyncio.run(
                 gamma_api._get_json_with_retry(session, "https://example.test", {}, "NBA")
             )
