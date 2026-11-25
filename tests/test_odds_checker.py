@@ -34,12 +34,15 @@ class OddsCooldownTests(unittest.IsolatedAsyncioTestCase):
             "question": "Will Boston Celtics win?",
             "outcomes": ["Yes", "No"],
             "outcomePrices": ["0.50", "0.50"],
+            "clobTokenIds": ["yes-token", "no-token"],
+            "feesEnabled": False,
         }
 
-        with patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=False)):
+        fake_ev = {"net_ev_pct": 10.0, "stake_usd": 100, "average_price": 0.5, "best_bid": 0.49, "best_ask": 0.5, "spread_pct": 2, "slippage_pct": 0, "fee_usd": 0, "gross_shares": 200, "net_shares": 200, "net_profit_usd": 10}
+        with patch.object(odds_checker, "_estimate_market_ev", new=AsyncMock(return_value=fake_ev)), patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=False)):
             await check_outcomes(
                 game, pinnacle_market, pm_market,
-                "Boston Celtics", "Los Angeles Lakers",
+                "Boston Celtics", "Los Angeles Lakers", session=object(),
             )
 
         self.assertEqual(odds_checker._last_odds_alert, {})
@@ -63,7 +66,8 @@ class OddsCooldownTests(unittest.IsolatedAsyncioTestCase):
             "outcomePrices": ["0.50", "0.50"],
         }
 
-        with patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=True)):
+        fake_ev = {"net_ev_pct": 10.0, "stake_usd": 100, "average_price": 0.5, "best_bid": 0.49, "best_ask": 0.5, "spread_pct": 2, "slippage_pct": 0, "fee_usd": 0, "gross_shares": 200, "net_shares": 200, "net_profit_usd": 10}
+        with patch.object(odds_checker, "_estimate_market_ev", new=AsyncMock(return_value=fake_ev)), patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=True)):
             await check_outcomes(
                 game, pinnacle_market, pm_market,
                 "Boston Celtics", "Los Angeles Lakers",
@@ -150,6 +154,23 @@ class OddsMatchingTests(unittest.TestCase):
         for payload, expected in samples:
             with self.subTest(expected=expected):
                 self.assertEqual(_sport_for_key(payload), expected)
+
+    def test_net_ev_includes_fee_and_walks_ask_depth(self):
+        result = odds_checker.calcular_ev_liquido(0.60, {"asks": [{"price": "0.50", "size": "100"}, {"price": "0.55", "size": "100"}], "bids": [{"price": "0.49", "size": "100"}]}, {"rate": 0.05, "exponent": 1}, 75)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result["stake_usd"], 75)
+        self.assertGreater(result["average_price"], 0.50)
+        self.assertGreater(result["fee_usd"], 0)
+        self.assertGreater(result["slippage_pct"], 0)
+
+    def test_net_ev_rejects_insufficient_depth(self):
+        result = odds_checker.calcular_ev_liquido(0.60, {"asks": [{"price": "0.50", "size": "10"}], "bids": []}, {"rate": 0.05, "exponent": 1}, 100)
+        self.assertIsNone(result)
+
+    def test_missing_fee_schedule_is_not_assumed(self):
+        self.assertIsNone(odds_checker._fee_schedule({"feesEnabled": True}))
+        self.assertEqual(odds_checker._fee_schedule({"feesEnabled": False}), {"rate": 0.0, "exponent": 1.0})
+        self.assertEqual(odds_checker._fee_schedule({"feeSchedule": {"rate": 0.05, "exponent": 1}}), {"rate": 0.05, "exponent": 1.0})
 
     def test_removes_bookmaker_margin(self):
         fair = calcular_probabilidades_sem_vig([
