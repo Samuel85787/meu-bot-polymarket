@@ -339,7 +339,8 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team)
 
         key = f"{game.get('id', '')}:{normalize_team_name(info['name'])}:{pm_market.get('conditionId', pm_market.get('id', ''))}"
         now = time.monotonic()
-        if now - _last_odds_alert.get(key, 0) < config.ODDS_COOLDOWN_SECONDS:
+        last_alert = _last_odds_alert.get(key)
+        if last_alert is not None and now - last_alert < config.ODDS_COOLDOWN_SECONDS:
             continue
         # Só inicia o cooldown quando o Telegram confirma o envio.
         enviado = await send_arbitrage_alert(
