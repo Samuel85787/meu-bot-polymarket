@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import time
+from collections import defaultdict, deque
 
 import websockets
 
@@ -27,6 +28,8 @@ class PolymarketMonitor:
         self.connected = False
         self._ws = None
         self._subscribed_assets = set()
+        self.order_books = {}
+        self.trade_history = defaultdict(deque)
 
         self.tracker = PriceTracker(
             threshold=config.PRICE_SPIKE_THRESHOLD,
@@ -59,20 +62,61 @@ class PolymarketMonitor:
             return True
         return config.MIN_PRICE <= price <= config.MAX_PRICE
 
-    async def subscribe_new_assets(self):
+    async def sync_subscriptions(self):
         if not self._ws or not self.connected:
             return
         current_assets = set(self.token_to_market.keys())
-        novos = list(current_assets - self._subscribed_assets)
+        novos = sorted(current_assets - self._subscribed_assets)
+        removidos = sorted(self._subscribed_assets - current_assets)
         if novos:
-            msg = {
-                "type": "market",
-                "assets_ids": novos,
-                "initial_dump": True,
-            }
-            await self._ws.send(json.dumps(msg))
+            await self._ws.send(json.dumps({"assets_ids": novos, "operation": "subscribe"}))
             self._subscribed_assets.update(novos)
             logger.info("Novos tokens assinados no CLOB: %s", len(novos))
+        if removidos:
+            await self._ws.send(json.dumps({"assets_ids": removidos, "operation": "unsubscribe"}))
+            self._subscribed_assets.difference_update(removidos)
+            for token_id in removidos:
+                self.order_books.pop(token_id, None)
+                self.trade_history.pop(token_id, None)
+
+    def update_order_book(self, data):
+        token_id = str(data.get("asset_id") or "")
+        if not token_id:
+            return
+        def parse_levels(levels, reverse):
+            parsed = []
+            for level in levels or []:
+                try:
+                    price = self.parse_float(level.get("price"))
+                    size = self.parse_float(level.get("size"))
+                    if 0 < price < 1 and size > 0:
+                        parsed.append((price, size))
+                except (AttributeError, TypeError):
+                    continue
+            return sorted(parsed, key=lambda item: item[0], reverse=reverse)
+        bids = parse_levels(data.get("bids"), True)
+        asks = parse_levels(data.get("asks"), False)
+        best_bid = bids[0][0] if bids else None
+        best_ask = asks[0][0] if asks else None
+        spread = best_ask - best_bid if best_bid is not None and best_ask is not None else None
+        self.order_books[token_id] = {
+            "best_bid": best_bid, "best_ask": best_ask, "spread": spread,
+            "bid_depth_5": sum(size for _, size in bids[:5]),
+            "ask_depth_5": sum(size for _, size in asks[:5]),
+            "updated_at": time.monotonic(),
+        }
+
+    def formatar_book(self, token_id):
+        book = self.order_books.get(str(token_id))
+        if not book or time.monotonic() - book["updated_at"] > 120:
+            return None
+        bid = f"{book['best_bid']:.4f}" if book["best_bid"] is not None else "—"
+        ask = f"{book['best_ask']:.4f}" if book["best_ask"] is not None else "—"
+        spread = f"{book['spread']:.4f}" if book["spread"] is not None else "—"
+        return (
+            f"Bid/Ask: {bid} / {ask} | Spread: {spread}\n"
+            f"Profundidade 5 níveis: compra {book['bid_depth_5']:.0f} / venda {book['ask_depth_5']:.0f} tokens"
+        )
 
     async def refresh_markets_loop(self):
         while True:
@@ -81,7 +125,7 @@ class PolymarketMonitor:
                 novos_mercados = await fetch_active_markets()
                 if novos_mercados:
                     self.update_markets(novos_mercados)
-                    await self.subscribe_new_assets()
+                    await self.sync_subscriptions()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -176,7 +220,12 @@ class PolymarketMonitor:
                                 continue
                             events = data if isinstance(data, list) else [data]
                             for ev in events:
-                                if isinstance(ev, dict) and ev.get("event_type") == "last_trade_price":
+                                if not isinstance(ev, dict):
+                                    continue
+                                event_type = ev.get("event_type")
+                                if event_type == "book":
+                                    self.update_order_book(ev)
+                                elif event_type == "last_trade_price":
                                     await self.handle_trade(ev)
 
                 except asyncio.CancelledError:
@@ -267,38 +316,57 @@ class PolymarketMonitor:
 
             ratio_liquidez = (usd_value / liquidez) if liquidez > 0 else 0
 
+            side_raw = str(data.get("side", "?")).upper()
+            history = self.trade_history[str(data.get("asset_id", ""))]
+            now = time.monotonic()
+            history.append((now, usd_value, side_raw))
+            while history and now - history[0][0] > 1800:
+                history.popleft()
+            buy_flow = sum(value for _, value, side in history if side == "BUY")
+            sell_flow = sum(value for _, value, side in history if side == "SELL")
+            total_flow = buy_flow + sell_flow
+            clustered_flow = len(history) >= 3 and total_flow >= config.MIN_BET_AMOUNT * 2
+
             is_big_bet = usd_value >= config.MIN_BET_AMOUNT
             is_insider_bet = (
                 usd_value >= config.MIN_IMPACT_BET_AMOUNT
                 and ratio_liquidez >= config.WHALE_LIQUIDITY_RATIO
             )
-
-            if not is_big_bet and not is_insider_bet:
+            if not is_big_bet and not is_insider_bet and not clustered_flow:
                 return
 
-            if is_big_bet and is_insider_bet:
-                motivo = f"Valor alto + Impacto ({round(ratio_liquidez * 100, 1)}% da liq)"
-            elif is_insider_bet:
-                motivo = f"Impacto na liquidez ({round(ratio_liquidez * 100, 1)}% da liq)"
-            else:
-                motivo = "Valor absoluto elevado"
+            motivos = []
+            if is_big_bet:
+                motivos.append("Valor individual elevado")
+            if is_insider_bet:
+                motivos.append(f"Impacto na liquidez ({ratio_liquidez * 100:.1f}%)")
+            if clustered_flow:
+                motivos.append(f"Fluxo acumulado em 30 min (USD {total_flow:,.0f})")
+            motivo = " + ".join(motivos)
 
             slug = market.get("slug", "unknown")
-            if not self.should_alert("whale_" + slug, config.WHALE_COOLDOWN_SECONDS):
+            alert_key = f"whale_{slug}_{outcome_name}_{side_raw}"
+            if not self.should_alert(alert_key, config.WHALE_COOLDOWN_SECONDS):
                 return
 
             placar_raw = await asyncio.to_thread(obter_placar_mercado, market)
             placar = self.formatar_placar(placar_raw)
-
+            fluxo = (
+                f"30 min: compra USD {buy_flow:,.0f} | venda USD {sell_flow:,.0f} "
+                f"| {len(history)} trades"
+            )
+            book = self.formatar_book(data.get("asset_id", ""))
             await self.enviar_alerta_baleia(
-                market, outcome_name, price, data.get("side", "?"), usd_value, placar, motivo
+                market, outcome_name, price, side_raw, usd_value, placar, motivo,
+                fluxo, book,
             )
 
         except Exception as e:
             logger.error("Erro baleia: %s", e)
 
     async def enviar_alerta_baleia(
-        self, market, outcome_name, price, side_raw, usd_value, placar, motivo
+        self, market, outcome_name, price, side_raw, usd_value, placar, motivo,
+        fluxo=None, book=None,
     ):
         try:
             volume_total = self.parse_float(market.get("volume", 0))
@@ -323,6 +391,10 @@ class PolymarketMonitor:
             )
             if placar:
                 msg_text += f"Placar: {placar}\n"
+            if fluxo:
+                msg_text += f"Fluxo acumulado: {fluxo}\n"
+            if book:
+                msg_text += f"Livro de ofertas: {book}\n"
             msg_text += f"Link: {link}"
 
             await send_alert(msg_text)
