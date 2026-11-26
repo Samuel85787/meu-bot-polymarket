@@ -45,6 +45,38 @@ class AlertHistoryTests(unittest.TestCase):
         self.assertEqual(metrics["win_rate"], 50.0)
 
 
+    def test_initialize_migrates_existing_database(self):
+        legacy_path = os.path.join(self.temp_dir.name, "legacy.db")
+        import sqlite3
+        db = sqlite3.connect(legacy_path)
+        db.execute("""
+            CREATE TABLE alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at REAL NOT NULL,
+                source TEXT NOT NULL,
+                alert_type TEXT NOT NULL,
+                market_id TEXT,
+                condition_id TEXT,
+                token_id TEXT,
+                outcome TEXT,
+                entry_price REAL,
+                reference_prob REAL,
+                ev_pct REAL,
+                stake_usd REAL,
+                details TEXT,
+                resolved_at REAL,
+                won INTEGER
+            )
+        """)
+        db.commit()
+        db.close()
+        with patch.object(alert_history, "DB_PATH", legacy_path):
+            alert_history.initialize()
+            with alert_history._connection() as migrated:
+                columns = {row["name"] for row in migrated.execute("PRAGMA table_info(alerts)")}
+        self.assertIn("pnl_usd", columns)
+        self.assertIn("roi_pct", columns)
+
     def test_simulated_result_accounts_for_fees_and_binary_outcome(self):
         details = {"gross_shares": 200, "net_shares": 198, "fee_usd": 0.9}
         pnl_win, roi_win = alert_history.simulated_result(
