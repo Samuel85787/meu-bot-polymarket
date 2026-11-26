@@ -559,15 +559,15 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
         )
         # A notificação prioriza a leitura rápida; métricas técnicas ficam no histórico/log.
         message = (
-            "🎯 OPORTUNIDADE ENCONTRADA\\n\\n"
-            f"🏟️ {game.get('home_team', '')} x {game.get('away_team', '')}\\n"
-            f"🏆 {pm_market.get('_sport') or pm_market.get('sport') or 'Esporte'}\\n"
-            f"👉 Escolha: {info['name']}\\n"
-            f"📊 Chance estimada: {fair_prob * 100:.1f}%\\n"
-            f"💵 Valor analisado: ${ev_data['stake_usd']:.2f}\\n"
+            "🎯 OPORTUNIDADE ENCONTRADA\n\n"
+            f"🏟️ {game.get('home_team', '')} x {game.get('away_team', '')}\n"
+            f"🏆 {pm_market.get('_sport') or pm_market.get('sport') or 'Esporte'}\n"
+            f"👉 Escolha: {info['name']}\n"
+            f"📊 Chance estimada: {fair_prob * 100:.1f}%\n"
+            f"💵 Valor analisado: ${ev_data['stake_usd']:.2f}\n"
             f"📈 Retorno esperado: ${ev_data['net_profit_usd']:+.2f} "
-            f"({ev_data['net_ev_pct']:+.1f}%)\\n\\n"
-            "⚠️ Estimativa baseada nas cotações atuais; não é lucro garantido.\\n"
+            f"({ev_data['net_ev_pct']:+.1f}%)\n\n"
+            "⚠️ Estimativa baseada nas cotações atuais; não é lucro garantido.\n"
             f"🔗 Ver mercado: {link}"
         )
         enviado = await send_alert(message)
