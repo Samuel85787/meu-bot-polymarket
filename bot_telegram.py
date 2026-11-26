@@ -11,7 +11,7 @@ from gamma_api import fetch_active_markets
 from odds_checker import check_arbitrage
 from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
-from alert_history import initialize as inicializar_historico, get_metrics, update_resolutions
+from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts)
 from health_status import set_service, format_status
 
 logger = logging.getLogger(__name__)
@@ -137,7 +137,7 @@ async def processar_comando(texto):
         else:
             await enviar_mensagem("Monitor ja esta desligado")
 
-    elif texto in ["/metrics", "/metricas", "/historico"]:
+    elif texto in ["/metrics", "/metricas", "/historico", "/performance"]:
         metricas = get_metrics()
         taxa = f"{metricas['win_rate']:.1f}%" if metricas["win_rate"] is not None else "Ainda sem amostra"
         ev_medio = f"{metricas['avg_ev']:+.2f}%" if metricas["avg_ev"] is not None else "—"
@@ -187,6 +187,53 @@ async def processar_comando(texto):
                 linha += f", P&L simulado ${item['pnl_usd']:+.2f}, ROI médio {item['avg_roi_pct']:+.2f}%"
             linhas.append(linha)
         await enviar_mensagem("HISTÓRICO E DESEMPENHO\n" + "\n".join(linhas))
+
+    elif texto.startswith("/sport") or texto.startswith("/esporte"):
+        partes = texto.split(maxsplit=1)
+        if len(partes) < 2:
+            await enviar_mensagem("Use: /sport NBA | NFL | Tênis ATP | Tênis WTA | CS2 | VALORANT")
+        else:
+            esporte = partes[1].strip()
+            dados = get_sport_metrics(esporte)
+            resolvidos = (dados["wins"] or 0) + (dados["losses"] or 0)
+            taxa_esporte = ((dados["wins"] or 0) / resolvidos * 100) if resolvidos else None
+            linhas = [
+                f"Desempenho — {esporte}",
+                f"Alertas: {dados['total']}",
+                f"Resolvidos: {resolvidos}",
+                f"Taxa de acerto: {taxa_esporte:.1f}%" if taxa_esporte is not None else "Taxa de acerto: sem amostra",
+                f"EV médio: {dados['avg_ev']:+.2f}%" if dados["avg_ev"] is not None else "EV médio: —",
+                f"P&L simulado: ${dados['pnl_usd']:+.2f}" if dados["pnl_usd"] is not None else "P&L simulado: sem amostra",
+                f"ROI médio: {dados['avg_roi_pct']:+.2f}%" if dados["avg_roi_pct"] is not None else "ROI médio: —",
+            ]
+            await enviar_mensagem("\\n".join(linhas))
+
+    elif texto in ["/top", "/worst"]:
+        melhores = texto == "/top"
+        alertas = get_extreme_alerts(5, best=melhores)
+        titulo = "MELHORES EV" if melhores else "PIORES EV"
+        linhas = [titulo]
+        for item in alertas:
+            esporte = item["sport"] or "Esporte não identificado"
+            pnl = f" | P&L ${item['pnl_usd']:+.2f}" if item["pnl_usd"] is not None else ""
+            linhas.append(
+                f"{esporte} — {item['outcome'] or 'Seleção'}: EV {item['ev_pct']:+.2f}%"
+                f" | entrada {item['entry_price'] if item['entry_price'] is not None else '—'}{pnl}"
+            )
+        if not alertas:
+            linhas.append("Ainda não há alertas Odds Value registrados.")
+        await enviar_mensagem("\\n".join(linhas))
+
+    elif texto == "/config":
+        await enviar_mensagem(
+            "CONFIGURAÇÃO ATUAL\\n"
+            f"EV mínimo: {config.ODDS_EDGE_THRESHOLD * 100:.2f}%\\n"
+            f"Stake simulada: ${config.ODDS_ESTIMATED_STAKE_USD:.2f}\\n"
+            f"Spread máximo: {config.ODDS_MAX_SPREAD_PCT:.2f}%\\n"
+            f"Slippage máximo: {config.ODDS_MAX_SLIPPAGE_PCT:.2f}%\\n"
+            f"Liquidez mínima no melhor ask: ${config.ODDS_MIN_TOP_ASK_USD:.2f}\\n"
+            f"Cooldown Odds: {config.ODDS_COOLDOWN_SECONDS}s"
+        )
 
     elif texto in ["/status", "/help", "/ajuda"]:
         estado = "Ligado" if monitor_ativo else "Desligado"
