@@ -515,7 +515,9 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
                 reference_prob=fair_prob, ev_pct=ev_data["net_ev_pct"],
                 stake_usd=ev_data["stake_usd"],
                 details={"fee_usd": ev_data["fee_usd"], "spread_pct": ev_data["spread_pct"],
-                         "slippage_pct": ev_data["slippage_pct"]},
+                         "slippage_pct": ev_data["slippage_pct"],
+                         "gross_shares": ev_data["gross_shares"],
+                         "net_shares": ev_data["net_shares"]},
             )
             logger.info("Oportunidade Odds Value enviada: %s", info["name"])
         else:
