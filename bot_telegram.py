@@ -141,6 +141,10 @@ async def processar_comando(texto):
         metricas = get_metrics()
         taxa = f"{metricas['win_rate']:.1f}%" if metricas["win_rate"] is not None else "Ainda sem amostra"
         ev_medio = f"{metricas['avg_ev']:+.2f}%" if metricas["avg_ev"] is not None else "—"
+        pnl = metricas["simulated_pnl_usd"]
+        pnl_texto = f"${pnl:+.2f}" if pnl is not None else "Ainda sem amostra"
+        roi = metricas["avg_roi_pct"]
+        roi_texto = f"{roi:+.2f}%" if roi is not None else "—"
         linhas = [
             f"Alertas registrados: {metricas['total']}",
             f"Resultados pendentes: {metricas['pending']}",
@@ -148,9 +152,18 @@ async def processar_comando(texto):
             f"Acertos: {metricas['wins']} | Erros: {metricas['losses']}",
             f"Taxa de acerto: {taxa}",
             f"EV médio no alerta: {ev_medio}",
+            "",
+            "RENTABILIDADE SIMULADA (somente Odds Value)",
+            f"Amostras: {metricas['pnl_samples']}",
+            f"P&L hipotético: {pnl_texto}",
+            f"ROI médio por alerta: {roi_texto}",
+            "Estimativa teórica; não comprova execução ou lucro real.",
         ]
         for item in metricas["by_type"]:
-            linhas.append(f"{item['alert_type']}: {item['total']} alertas, {item['wins'] or 0} acertos, {item['losses'] or 0} erros")
+            linha = f"{item['alert_type']}: {item['total']} alertas, {item['wins'] or 0} acertos, {item['losses'] or 0} erros"
+            if item["pnl_samples"]:
+                linha += f", P&L simulado ${item['pnl_usd']:+.2f}, ROI médio {item['avg_roi_pct']:+.2f}%"
+            linhas.append(linha)
         await enviar_mensagem("HISTÓRICO E DESEMPENHO\n" + "\n".join(linhas))
 
     elif texto in ["/status", "/help", "/ajuda"]:
