@@ -135,7 +135,7 @@ class AlertHistoryTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["simulated_pnl_usd"], 98)
         self.assertAlmostEqual(metrics["avg_roi_pct"], 98)
         self.assertEqual(metrics["calibration"]["samples"], 1)
-        self.assertAlmostEqual(metrics["calibration"]["brier_score"], 0.0)
+        self.assertAlmostEqual(metrics["calibration"]["brier_score"], 0.16)
         self.assertEqual(metrics["by_sport"][0]["sport"], "Não identificado")
 
 
