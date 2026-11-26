@@ -452,7 +452,9 @@ def avaliar_qualidade_livro(ev_data, stake_usd, max_spread_pct=None,
     if depth < required_depth:
         return False, "liquidez no melhor ask insuficiente"
     age = _safe_metric(ev_data.get("book_age_seconds"))
-    if age is not None and age > config.ODDS_MAX_BOOK_AGE_SECONDS:
+    if age is None:
+        return False, "timestamp do livro ausente ou inválido"
+    if age > config.ODDS_MAX_BOOK_AGE_SECONDS:
         return False, "livro de ofertas desatualizado"
     return True, "ok"
 
