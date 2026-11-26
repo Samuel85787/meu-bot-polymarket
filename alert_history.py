@@ -45,7 +45,8 @@ def initialize():
                 resolved_at REAL,
                 won INTEGER,
                 pnl_usd REAL,
-                roi_pct REAL
+                roi_pct REAL,
+                sport TEXT
             )
         """)
         db.execute("CREATE INDEX IF NOT EXISTS idx_alerts_unresolved ON alerts(resolved_at, market_id)")
@@ -56,6 +57,8 @@ def initialize():
             db.execute("ALTER TABLE alerts ADD COLUMN pnl_usd REAL")
         if "roi_pct" not in columns:
             db.execute("ALTER TABLE alerts ADD COLUMN roi_pct REAL")
+        if "sport" not in columns:
+            db.execute("ALTER TABLE alerts ADD COLUMN sport TEXT")
 
 
 def record_alert(source, alert_type, market, token_id=None, outcome=None,
@@ -68,8 +71,8 @@ def record_alert(source, alert_type, market, token_id=None, outcome=None,
                 INSERT INTO alerts (
                     created_at, source, alert_type, market_id, condition_id,
                     token_id, outcome, entry_price, reference_prob, ev_pct,
-                    stake_usd, details
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    stake_usd, details, sport
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 time.time(), str(source), str(alert_type),
                 str(market.get("id") or "") or None,
@@ -78,6 +81,7 @@ def record_alert(source, alert_type, market, token_id=None, outcome=None,
                 _finite_or_none(entry_price), _finite_or_none(reference_prob),
                 _finite_or_none(ev_pct), _finite_or_none(stake_usd),
                 json.dumps(details or {}, ensure_ascii=False, default=str),
+                str(market.get("_sport") or (market.get("sport") or "")) or None,
             ))
         return True
     except (sqlite3.Error, OSError, TypeError, ValueError) as exc:
@@ -137,6 +141,39 @@ def get_metrics():
             "SELECT COUNT(*) AS samples, SUM(pnl_usd) AS pnl_usd, AVG(roi_pct) AS avg_roi_pct "
             "FROM alerts WHERE pnl_usd IS NOT NULL"
         ).fetchone()
+        calibration = db.execute("""
+            SELECT COUNT(*) AS samples,
+                   AVG((reference_prob - won) * (reference_prob - won)) AS brier_score,
+                   AVG(ABS(reference_prob - won)) AS mean_abs_error
+            FROM alerts
+            WHERE source = 'odds_value' AND won IS NOT NULL
+              AND reference_prob > 0 AND reference_prob < 1
+        """).fetchone()
+        calibration_bins = db.execute("""
+            SELECT CASE
+                     WHEN reference_prob < 0.50 THEN '<50%'
+                     WHEN reference_prob < 0.60 THEN '50–59%'
+                     WHEN reference_prob < 0.70 THEN '60–69%'
+                     WHEN reference_prob < 0.80 THEN '70–79%'
+                     ELSE '80%+'
+                   END AS probability_band,
+                   COUNT(*) AS samples, AVG(reference_prob) AS predicted,
+                   AVG(won) AS observed
+            FROM alerts
+            WHERE source = 'odds_value' AND won IS NOT NULL
+              AND reference_prob > 0 AND reference_prob < 1
+            GROUP BY probability_band ORDER BY MIN(reference_prob)
+        """).fetchall()
+        by_sport = db.execute("""
+            SELECT COALESCE(sport, 'Não identificado') AS sport,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   COUNT(pnl_usd) AS pnl_samples, SUM(pnl_usd) AS pnl_usd,
+                   AVG(roi_pct) AS avg_roi_pct
+            FROM alerts WHERE source = 'odds_value'
+            GROUP BY sport ORDER BY total DESC
+        """).fetchall()
         by_type = db.execute("""
             SELECT alert_type, COUNT(*) AS total,
                    SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
@@ -153,6 +190,9 @@ def get_metrics():
         "pnl_samples": pnl["samples"],
         "simulated_pnl_usd": pnl["pnl_usd"],
         "avg_roi_pct": pnl["avg_roi_pct"],
+        "calibration": dict(calibration),
+        "calibration_bins": [dict(row) for row in calibration_bins],
+        "by_sport": [dict(row) for row in by_sport],
         "by_type": [dict(row) for row in by_type],
     }
 
