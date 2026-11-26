@@ -75,6 +75,7 @@ ODDS_ESTIMATED_STAKE_USD = numero("ODDS_ESTIMATED_STAKE_USD", 100, 0.01)
 ODDS_MAX_SPREAD_PCT = numero("ODDS_MAX_SPREAD_PCT", 8, 0)
 ODDS_MAX_SLIPPAGE_PCT = numero("ODDS_MAX_SLIPPAGE_PCT", 3, 0)
 ODDS_MIN_TOP_ASK_USD = numero("ODDS_MIN_TOP_ASK_USD", 25, 0)
+ODDS_MAX_BOOK_AGE_SECONDS = inteiro("ODDS_MAX_BOOK_AGE_SECONDS", 30, 1)
 
 # False conserva o comportamento original: aguardar /start.
 AUTO_START = booleano("AUTO_START", False)
