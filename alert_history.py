@@ -43,11 +43,19 @@ def initialize():
                 stake_usd REAL,
                 details TEXT,
                 resolved_at REAL,
-                won INTEGER
+                won INTEGER,
+                pnl_usd REAL,
+                roi_pct REAL
             )
         """)
         db.execute("CREATE INDEX IF NOT EXISTS idx_alerts_unresolved ON alerts(resolved_at, market_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at)")
+        # Migração aditiva: mantém bancos SQLite já existentes compatíveis.
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(alerts)")}
+        if "pnl_usd" not in columns:
+            db.execute("ALTER TABLE alerts ADD COLUMN pnl_usd REAL")
+        if "roi_pct" not in columns:
+            db.execute("ALTER TABLE alerts ADD COLUMN roi_pct REAL")
 
 
 def record_alert(source, alert_type, market, token_id=None, outcome=None,
@@ -87,6 +95,30 @@ def _finite_or_none(value):
         return None
 
 
+def simulated_result(alert_type, entry_price, stake_usd, details, won):
+    """Retorno hipotético de uma compra binária; não representa execução real."""
+    if str(alert_type).strip().lower() not in {"ev líquido", "odds value"}:
+        return None, None
+    price = _finite_or_none(entry_price)
+    stake = _finite_or_none(stake_usd)
+    if price is None or stake is None or not 0 < price < 1 or stake <= 0:
+        return None, None
+    if not isinstance(details, dict):
+        try:
+            details = json.loads(details or "{}")
+        except (TypeError, ValueError):
+            details = {}
+    gross_shares = _finite_or_none(details.get("gross_shares"))
+    net_shares = _finite_or_none(details.get("net_shares"))
+    if gross_shares is None:
+        gross_shares = stake / price
+    if net_shares is None:
+        fee_usd = _finite_or_none(details.get("fee_usd")) or 0.0
+        net_shares = max(0.0, gross_shares - fee_usd / price)
+    pnl = (net_shares - stake) if won else -stake
+    return pnl, pnl / stake * 100
+
+
 def get_metrics():
     with _connection() as db:
         total = db.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
@@ -101,10 +133,16 @@ def get_metrics():
         avg_ev = db.execute(
             "SELECT AVG(ev_pct) FROM alerts WHERE ev_pct IS NOT NULL"
         ).fetchone()[0]
+        pnl = db.execute(
+            "SELECT COUNT(*) AS samples, SUM(pnl_usd) AS pnl_usd, AVG(roi_pct) AS avg_roi_pct "
+            "FROM alerts WHERE pnl_usd IS NOT NULL"
+        ).fetchone()
         by_type = db.execute("""
             SELECT alert_type, COUNT(*) AS total,
                    SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
-                   SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses
+                   SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   COUNT(pnl_usd) AS pnl_samples, SUM(pnl_usd) AS pnl_usd,
+                   AVG(roi_pct) AS avg_roi_pct
             FROM alerts GROUP BY alert_type ORDER BY total DESC
         """).fetchall()
     return {
@@ -112,6 +150,9 @@ def get_metrics():
         "wins": wins, "losses": losses,
         "win_rate": (wins / settled * 100) if settled else None,
         "avg_ev": avg_ev,
+        "pnl_samples": pnl["samples"],
+        "simulated_pnl_usd": pnl["pnl_usd"],
+        "avg_roi_pct": pnl["avg_roi_pct"],
         "by_type": [dict(row) for row in by_type],
     }
 
@@ -120,7 +161,8 @@ async def update_resolutions(limit=100):
     """Consulta mercados pendentes na Gamma e marca o resultado do token alertado."""
     with _connection() as db:
         rows = db.execute("""
-            SELECT id, market_id, token_id FROM alerts
+            SELECT id, market_id, token_id, alert_type, entry_price, stake_usd, details
+            FROM alerts
             WHERE token_id IS NOT NULL AND resolved_at IS NULL AND market_id IS NOT NULL
             ORDER BY created_at ASC LIMIT ?
         """, (int(limit),)).fetchall()
@@ -161,10 +203,16 @@ async def update_resolutions(limit=100):
                     won = 0
                 else:
                     continue
+                pnl, roi = simulated_result(
+                    row["alert_type"], row["entry_price"], row["stake_usd"],
+                    row["details"], bool(won),
+                )
                 with _connection() as db:
                     cursor = db.execute(
-                        "UPDATE alerts SET resolved_at = ?, won = ? WHERE id = ? AND resolved_at IS NULL",
-                        (time.time(), won, row["id"]),
+                        """UPDATE alerts
+                           SET resolved_at = ?, won = ?, pnl_usd = ?, roi_pct = ?
+                           WHERE id = ? AND resolved_at IS NULL""",
+                        (time.time(), won, pnl, roi, row["id"]),
                     )
                     resolved += cursor.rowcount
             except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError, OSError) as exc:
