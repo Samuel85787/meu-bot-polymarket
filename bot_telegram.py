@@ -11,7 +11,7 @@ from gamma_api import fetch_active_markets
 from odds_checker import check_arbitrage
 from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
-from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts)
+from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest)
 from health_status import set_service, format_status
 
 logger = logging.getLogger(__name__)
@@ -187,6 +187,30 @@ async def processar_comando(texto):
                 linha += f", P&L simulado ${item['pnl_usd']:+.2f}, ROI médio {item['avg_roi_pct']:+.2f}%"
             linhas.append(linha)
         await enviar_mensagem("HISTÓRICO E DESEMPENHO\n" + "\n".join(linhas))
+
+    elif texto.startswith("/backtest"):
+        try:
+            partes = texto.split()
+            stake_teste = float(partes[1]) if len(partes) > 1 else config.ODDS_ESTIMATED_STAKE_USD
+            ev_minimo = float(partes[2]) if len(partes) > 2 else None
+            esporte_teste = " ".join(partes[3:]) if len(partes) > 3 else None
+            resultado = replay_backtest(stake_teste, ev_minimo, esporte_teste)
+            linhas = [
+                "BACKTEST — REPLAY DE ALERTAS",
+                f"Stake hipotética por sinal: ${stake_teste:.2f}",
+                f"Amostras: {resultado['samples']}",
+                f"Vitórias/derrotas: {resultado['wins']}/{resultado['losses']}",
+                f"Taxa de acerto: {resultado['win_rate']:.1f}%" if resultado["win_rate"] is not None else "Taxa de acerto: sem amostra",
+                f"P&L simulado: ${resultado['total_pnl_usd']:+.2f}" if resultado["total_pnl_usd"] is not None else "P&L simulado: sem amostra",
+                f"ROI médio: {resultado['avg_roi_pct']:+.2f}%" if resultado["avg_roi_pct"] is not None else "ROI médio: —",
+                f"Drawdown máximo estimado: ${resultado['max_drawdown_usd']:.2f}" if resultado["max_drawdown_usd"] is not None else "Drawdown: —",
+            ]
+            for nome, dados in resultado["by_sport"].items():
+                linhas.append(f"{nome}: {dados['samples']} sinais, P&L ${dados['pnl_usd']:+.2f}")
+            linhas.extend(["", resultado["assumptions"], "Uso: /backtest [stake] [EV mínimo %] [esporte]"])
+            await enviar_mensagem("\n".join(linhas))
+        except (ValueError, TypeError):
+            await enviar_mensagem("Uso: /backtest [stake] [EV mínimo %] [esporte]. Ex.: /backtest 100 5 NBA")
 
     elif texto.startswith("/sport") or texto.startswith("/esporte"):
         partes = texto.split(maxsplit=1)
