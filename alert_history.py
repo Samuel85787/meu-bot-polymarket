@@ -134,6 +134,12 @@ def get_metrics():
         ).fetchone()[0]
         wins = db.execute("SELECT COUNT(*) FROM alerts WHERE won = 1").fetchone()[0]
         losses = db.execute("SELECT COUNT(*) FROM alerts WHERE won = 0").fetchone()[0]
+        odds_counts = db.execute("""
+            SELECT COUNT(*) AS settled,
+                   SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses
+            FROM alerts WHERE source = 'odds_value' AND won IS NOT NULL
+        """).fetchone()
         avg_ev = db.execute(
             "SELECT AVG(ev_pct) FROM alerts WHERE ev_pct IS NOT NULL"
         ).fetchone()[0]
@@ -186,6 +192,11 @@ def get_metrics():
         "total": total, "pending": pending, "settled": settled,
         "wins": wins, "losses": losses,
         "win_rate": (wins / settled * 100) if settled else None,
+        "odds_settled": odds_counts["settled"],
+        "odds_wins": odds_counts["wins"] or 0,
+        "odds_losses": odds_counts["losses"] or 0,
+        "odds_win_rate": ((odds_counts["wins"] or 0) / odds_counts["settled"] * 100)
+                         if odds_counts["settled"] else None,
         "avg_ev": avg_ev,
         "pnl_samples": pnl["samples"],
         "simulated_pnl_usd": pnl["pnl_usd"],
