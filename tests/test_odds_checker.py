@@ -180,6 +180,10 @@ class OddsMatchingTests(unittest.TestCase):
         self.assertFalse(odds_checker.avaliar_qualidade_livro(
             {"spread_pct": 1}, 100
         )[0])
+        self.assertFalse(odds_checker.avaliar_qualidade_livro(
+            {**base, "book_age_seconds": 45}, 100
+        )[0])
+        self.assertIsNone(odds_checker._book_age_seconds("not-a-timestamp"))
 
     def test_net_ev_rejects_insufficient_depth(self):
         result = odds_checker.calcular_ev_liquido(0.60, {"asks": [{"price": "0.50", "size": "10"}], "bids": []}, {"rate": 0.05, "exponent": 1}, 100)
