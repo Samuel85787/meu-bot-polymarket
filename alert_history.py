@@ -211,6 +211,67 @@ def get_sport_metrics(sport):
     return dict(row)
 
 
+def replay_backtest(stake_usd=100.0, min_ev_pct=None, sport=None):
+    """Reproduz sinais Odds Value já registrados; não busca candles históricos externos."""
+    stake = _finite_or_none(stake_usd)
+    if stake is None or stake <= 0:
+        raise ValueError("stake_usd deve ser positivo")
+    clauses = ["source = 'odds_value'", "won IS NOT NULL", "entry_price IS NOT NULL"]
+    params = []
+    if min_ev_pct is not None:
+        threshold = _finite_or_none(min_ev_pct)
+        if threshold is None:
+            raise ValueError("min_ev_pct inválido")
+        clauses.append("ev_pct >= ?")
+        params.append(threshold)
+    if sport:
+        clauses.append("LOWER(COALESCE(sport, '')) = LOWER(?)")
+        params.append(str(sport).strip())
+    with _connection() as db:
+        rows = db.execute(
+            "SELECT alert_type, entry_price, stake_usd, details, won, ev_pct, sport "
+            "FROM alerts WHERE " + " AND ".join(clauses) + " ORDER BY created_at ASC",
+            params,
+        ).fetchall()
+    results = []
+    for row in rows:
+        historical_stake = _finite_or_none(row["stake_usd"])
+        if not historical_stake or historical_stake <= 0:
+            continue
+        pnl, roi = simulated_result(
+            row["alert_type"], row["entry_price"], historical_stake,
+            row["details"], bool(row["won"]),
+        )
+        if roi is None:
+            continue
+        results.append({
+            "sport": row["sport"] or "Não identificado",
+            "won": bool(row["won"]), "ev_pct": row["ev_pct"],
+            "roi_pct": roi, "pnl_usd": stake * roi / 100.0,
+        })
+    cumulative = peak = max_drawdown = 0.0
+    for item in results:
+        cumulative += item["pnl_usd"]
+        peak = max(peak, cumulative)
+        max_drawdown = max(max_drawdown, peak - cumulative)
+    wins = sum(1 for item in results if item["won"])
+    return {
+        "samples": len(results), "wins": wins, "losses": len(results) - wins,
+        "win_rate": wins / len(results) * 100 if results else None,
+        "total_pnl_usd": sum(item["pnl_usd"] for item in results) if results else None,
+        "avg_roi_pct": sum(item["roi_pct"] for item in results) / len(results) if results else None,
+        "max_drawdown_usd": max_drawdown if results else None,
+        "by_sport": {
+            name: {
+                "samples": sum(1 for item in results if item["sport"] == name),
+                "pnl_usd": sum(item["pnl_usd"] for item in results if item["sport"] == name),
+            }
+            for name in sorted({item["sport"] for item in results})
+        },
+        "assumptions": "Replay de alertas Odds Value armazenados; não inclui sinais não registrados, execução real ou dados históricos externos.",
+    }
+
+
 def get_extreme_alerts(limit=5, best=True):
     direction = "DESC" if best else "ASC"
     with _connection() as db:
