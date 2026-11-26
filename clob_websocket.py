@@ -199,7 +199,7 @@ class PolymarketMonitor:
             if value and len(str(value).strip()) <= 90:
                 return str(value).strip()
         question = str(market.get("question") or "")
-        match = re.search(r"between\\s+(.+?)\\s+and\\s+(.+?)(?:,|\\.|$)", question, re.IGNORECASE)
+        match = re.search(r"between\s+(.+?)\s+and\s+(.+?)(?:,|\\.|$)", question, re.IGNORECASE)
         if match:
             return f"{match.group(1).strip()} x {match.group(2).strip()}"
         return question[:87].rstrip() + ("..." if len(question) > 87 else "") or "Evento não identificado"
@@ -356,12 +356,12 @@ class PolymarketMonitor:
             titulo = "PRECO SUBIU" if event_type == "SPIKE_UP" else "PRECO CAIU"
 
             msg_text = (
-                f"📊 {titulo}\\n\\n"
-                f"🏟️ {self.titulo_evento_curto(market)}\\n"
-                f"👉 Escolha: {outcome_name}\\n"
-                f"💰 Preço: {new_price:.3f}\\n"
-                f"📈 Variação: {pct * 100:+.1f}%\\n"
-                f"💧 Liquidez do mercado: ${liquidez:,.0f}\\n"
+                f"📊 {titulo}\n\n"
+                f"🏟️ {self.titulo_evento_curto(market)}\n"
+                f"👉 Escolha: {outcome_name}\n"
+                f"💰 Preço: {new_price:.3f}\n"
+                f"📈 Variação: {pct * 100:+.1f}%\n"
+                f"💧 Liquidez do mercado: ${liquidez:,.0f}\n"
                 f"🔗 Ver mercado: {link}"
             )
 
@@ -443,17 +443,17 @@ class PolymarketMonitor:
             titulo = "MEGA BALEIA" if usd_value >= config.MEGA_BET_AMOUNT else "Aposta Grande"
 
             msg_text = (
-                f"🐋 {titulo.upper()}\\n\\n"
-                f"🏟️ {self.titulo_evento_curto(market)}\\n"
-                f"🏆 {market.get('_sport') or market.get('sport') or 'Esporte'}\\n"
-                f"👉 Escolha: {outcome_name}\\n"
-                f"🟢 Ação: {side_texto}\\n"
-                f"💵 Valor da aposta: ${usd_value:,.2f}\\n"
-                f"📊 Preço: {price:.3f}\\n"
-                f"📌 Por que chamou atenção: {motivo}\\n"
-                + (f"🏟️ Placar: {placar}\\n" if placar else "")
-                + (f"📈 Movimentação recente: {fluxo}\\n" if fluxo else "")
-                + f"\\n🔗 Ver mercado: {link}"
+                f"🐋 {titulo.upper()}\n\n"
+                f"🏟️ {self.titulo_evento_curto(market)}\n"
+                f"🏆 {market.get('_sport') or market.get('sport') or 'Esporte'}\n"
+                f"👉 Escolha: {outcome_name}\n"
+                f"🟢 Ação: {side_texto}\n"
+                f"💵 Valor da aposta: ${usd_value:,.2f}\n"
+                f"📊 Preço: {price:.3f}\n"
+                f"📌 Por que chamou atenção: {motivo}\n"
+                + (f"🏟️ Placar: {placar}\n" if placar else "")
+                + (f"📈 Movimentação recente: {fluxo}\n" if fluxo else "")
+                + f"\n🔗 Ver mercado: {link}"
             )
 
             enviado = await send_alert(msg_text)
