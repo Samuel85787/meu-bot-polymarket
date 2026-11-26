@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import math
+import re
 import time
 from collections import defaultdict, deque
 
@@ -190,6 +191,19 @@ class PolymarketMonitor:
         except Exception:
             return False
 
+    def titulo_evento_curto(self, market):
+        """Retorna um nome curto para o evento, sem copiar regras longas do mercado."""
+        events = market.get("events") or []
+        event = events[0] if events and isinstance(events[0], dict) else {}
+        for value in (event.get("title"), event.get("name"), market.get("groupItemTitle")):
+            if value and len(str(value).strip()) <= 90:
+                return str(value).strip()
+        question = str(market.get("question") or "")
+        match = re.search(r"between\\s+(.+?)\\s+and\\s+(.+?)(?:,|\\.|$)", question, re.IGNORECASE)
+        if match:
+            return f"{match.group(1).strip()} x {match.group(2).strip()}"
+        return question[:87].rstrip() + ("..." if len(question) > 87 else "") or "Evento não identificado"
+
     def gerar_link(self, market):
         events = market.get("events") or []
         if events and isinstance(events[0], dict):
@@ -342,15 +356,13 @@ class PolymarketMonitor:
             titulo = "PRECO SUBIU" if event_type == "SPIKE_UP" else "PRECO CAIU"
 
             msg_text = (
-                f"{titulo}\n"
-                f"Evento: {question}\n"
-                f"{formatar_contexto_mercado(market)}\n"
-                f"Seleção: {outcome_name}\n"
-                f"Preco: {round(old_price, 4)} -> {round(new_price, 4)}\n"
-                f"Oscilacao: {round(pct * 100, 2)}%\n"
-                f"Liquidez: ${int(liquidez)}\n"
-                f"Volume: ${int(volume_total)}\n"
-                f"Link: {link}"
+                f"📊 {titulo}\\n\\n"
+                f"🏟️ {self.titulo_evento_curto(market)}\\n"
+                f"👉 Escolha: {outcome_name}\\n"
+                f"💰 Preço: {new_price:.3f}\\n"
+                f"📈 Variação: {pct * 100:+.1f}%\\n"
+                f"💧 Liquidez do mercado: ${liquidez:,.0f}\\n"
+                f"🔗 Ver mercado: {link}"
             )
 
             enviado = await send_alert(msg_text)
@@ -431,24 +443,18 @@ class PolymarketMonitor:
             titulo = "MEGA BALEIA" if usd_value >= config.MEGA_BET_AMOUNT else "Aposta Grande"
 
             msg_text = (
-                f"{titulo}\n"
-                f"Evento: {question}\n"
-                f"{formatar_contexto_mercado(market)}\n"
-                f"Seleção: {outcome_name}\n"
-                f"Motivo: {motivo}\n"
-                f"Acao: {side_texto}\n"
-                f"Valor: ${round(usd_value, 2)}\n"
-                f"Preco: {round(price, 4)}\n"
-                f"Volume: ${int(volume_total)}\n"
-                f"Liquidez: ${int(liquidez)}\n"
+                f"🐋 {titulo.upper()}\\n\\n"
+                f"🏟️ {self.titulo_evento_curto(market)}\\n"
+                f"🏆 {market.get('_sport') or market.get('sport') or 'Esporte'}\\n"
+                f"👉 Escolha: {outcome_name}\\n"
+                f"🟢 Ação: {side_texto}\\n"
+                f"💵 Valor da aposta: ${usd_value:,.2f}\\n"
+                f"📊 Preço: {price:.3f}\\n"
+                f"📌 Por que chamou atenção: {motivo}\\n"
+                + (f"🏟️ Placar: {placar}\\n" if placar else "")
+                + (f"📈 Movimentação recente: {fluxo}\\n" if fluxo else "")
+                + f"\\n🔗 Ver mercado: {link}"
             )
-            if placar:
-                msg_text += f"Placar: {placar}\n"
-            if fluxo:
-                msg_text += f"Fluxo acumulado: {fluxo}\n"
-            if book:
-                msg_text += f"Livro de ofertas: {book}\n"
-            msg_text += f"Link: {link}"
 
             enviado = await send_alert(msg_text)
             if enviado:
