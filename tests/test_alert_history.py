@@ -101,7 +101,7 @@ class AlertHistoryTests(unittest.TestCase):
         market = {"id": "market-3"}
         alert_history.record_alert(
             "odds_value", "EV líquido", market, token_id="token-c",
-            entry_price=0.5, stake_usd=100,
+            entry_price=0.5, reference_prob=0.60, stake_usd=100,
             details={"gross_shares": 200, "net_shares": 198},
         )
         with alert_history._connection() as db:
