@@ -557,18 +557,18 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             config.POLYMARKET_BASE_URL + "/event/" + slug
             if slug else config.POLYMARKET_BASE_URL
         )
+        # A notificação prioriza a leitura rápida; métricas técnicas ficam no histórico/log.
         message = (
-            "ODDS VALUE - EV LIQUIDO\n"
-            f"Evento: {game.get('home_team', '')} vs {game.get('away_team', '')}\n"
-            f"{formatar_contexto_mercado(pm_market)}\n"
-            f"Seleção: {info['name']}\n"
-            f"Pinnacle sem margem: {fair_prob * 100:.1f}% (odd {pinnacle_odds:.2f})\n"
-            f"Compra estimada: ${ev_data['stake_usd']:.2f} a ${ev_data['average_price']:.4f} por share\n"
-            f"Melhor bid/ask: {ev_data['best_bid'] if ev_data['best_bid'] is not None else '—'} / {ev_data['best_ask']:.4f}\n"
-            f"Spread: {ev_data['spread_pct']:.2f}% | Slippage: {ev_data['slippage_pct']:.2f}%\n"
-            f"Taxa estimada: ${ev_data['fee_usd']:.4f}\n"
-            f"EV líquido: {ev_data['net_ev_pct']:+.2f}% (${ev_data['net_profit_usd']:+.2f})\n"
-            f"Link: {link}"
+            "🎯 OPORTUNIDADE ENCONTRADA\\n\\n"
+            f"🏟️ {game.get('home_team', '')} x {game.get('away_team', '')}\\n"
+            f"🏆 {pm_market.get('_sport') or pm_market.get('sport') or 'Esporte'}\\n"
+            f"👉 Escolha: {info['name']}\\n"
+            f"📊 Chance estimada: {fair_prob * 100:.1f}%\\n"
+            f"💵 Valor analisado: ${ev_data['stake_usd']:.2f}\\n"
+            f"📈 Retorno esperado: ${ev_data['net_profit_usd']:+.2f} "
+            f"({ev_data['net_ev_pct']:+.1f}%)\\n\\n"
+            "⚠️ Estimativa baseada nas cotações atuais; não é lucro garantido.\\n"
+            f"🔗 Ver mercado: {link}"
         )
         enviado = await send_alert(message)
         if enviado:
