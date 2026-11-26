@@ -45,5 +45,43 @@ class AlertHistoryTests(unittest.TestCase):
         self.assertEqual(metrics["win_rate"], 50.0)
 
 
+    def test_simulated_result_accounts_for_fees_and_binary_outcome(self):
+        details = {"gross_shares": 200, "net_shares": 198, "fee_usd": 0.9}
+        pnl_win, roi_win = alert_history.simulated_result(
+            "EV líquido", 0.5, 100, details, True
+        )
+        pnl_loss, roi_loss = alert_history.simulated_result(
+            "EV líquido", 0.5, 100, details, False
+        )
+        self.assertAlmostEqual(pnl_win, 98.0)
+        self.assertAlmostEqual(roi_win, 98.0)
+        self.assertAlmostEqual(pnl_loss, -100.0)
+        self.assertAlmostEqual(roi_loss, -100.0)
+
+    def test_non_odds_alerts_do_not_receive_profitability(self):
+        pnl, roi = alert_history.simulated_result(
+            "BUY", 0.5, 100, {}, True
+        )
+        self.assertIsNone(pnl)
+        self.assertIsNone(roi)
+
+    def test_metrics_separate_simulated_profit_from_win_rate(self):
+        market = {"id": "market-3"}
+        alert_history.record_alert(
+            "odds_value", "EV líquido", market, token_id="token-c",
+            entry_price=0.5, stake_usd=100,
+            details={"gross_shares": 200, "net_shares": 198},
+        )
+        with alert_history._connection() as db:
+            db.execute(
+                "UPDATE alerts SET won = 1, resolved_at = 100, pnl_usd = 98, roi_pct = 98 "
+                "WHERE token_id = 'token-c'"
+            )
+        metrics = alert_history.get_metrics()
+        self.assertEqual(metrics["pnl_samples"], 1)
+        self.assertAlmostEqual(metrics["simulated_pnl_usd"], 98)
+        self.assertAlmostEqual(metrics["avg_roi_pct"], 98)
+
+
 if __name__ == "__main__":
     unittest.main()
