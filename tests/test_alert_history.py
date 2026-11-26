@@ -90,6 +90,27 @@ class AlertHistoryTests(unittest.TestCase):
         self.assertAlmostEqual(pnl_loss, -100.0)
         self.assertAlmostEqual(roi_loss, -100.0)
 
+    def test_replay_backtest_scales_historical_alert_returns(self):
+        market = {"id": "market-replay", "_sport": "NBA"}
+        alert_history.record_alert(
+            "odds_value", "EV líquido", market, token_id="replay-win",
+            entry_price=0.5, reference_prob=0.6, stake_usd=100,
+            ev_pct=10, details={"gross_shares": 200, "net_shares": 198},
+        )
+        alert_history.record_alert(
+            "odds_value", "EV líquido", market, token_id="replay-loss",
+            entry_price=0.5, reference_prob=0.6, stake_usd=100,
+            ev_pct=10, details={"gross_shares": 200, "net_shares": 198},
+        )
+        with alert_history._connection() as db:
+            db.execute("UPDATE alerts SET won = 1, resolved_at = 100 WHERE token_id = 'replay-win'")
+            db.execute("UPDATE alerts SET won = 0, resolved_at = 100 WHERE token_id = 'replay-loss'")
+        result = alert_history.replay_backtest(50, min_ev_pct=5, sport="NBA")
+        self.assertEqual(result["samples"], 2)
+        self.assertEqual(result["wins"], 1)
+        self.assertAlmostEqual(result["total_pnl_usd"], -1.0)
+        self.assertEqual(result["by_sport"]["NBA"]["samples"], 2)
+
     def test_non_odds_alerts_do_not_receive_profitability(self):
         pnl, roi = alert_history.simulated_result(
             "BUY", 0.5, 100, {}, True
