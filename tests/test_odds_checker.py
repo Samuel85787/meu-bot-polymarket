@@ -38,7 +38,7 @@ class OddsCooldownTests(unittest.IsolatedAsyncioTestCase):
             "feesEnabled": False,
         }
 
-        fake_ev = {"net_ev_pct": 10.0, "stake_usd": 100, "average_price": 0.5, "best_bid": 0.49, "best_ask": 0.5, "spread_pct": 2, "slippage_pct": 0, "fee_usd": 0, "gross_shares": 200, "net_shares": 200, "net_profit_usd": 10, "top_ask_depth_usd": 100}
+        fake_ev = {"net_ev_pct": 10.0, "stake_usd": 100, "average_price": 0.5, "best_bid": 0.49, "best_ask": 0.5, "spread_pct": 2, "slippage_pct": 0, "fee_usd": 0, "gross_shares": 200, "net_shares": 200, "net_profit_usd": 10, "top_ask_depth_usd": 100, "book_age_seconds": 1}
         with patch.object(odds_checker, "_estimate_market_ev", new=AsyncMock(side_effect=[fake_ev, None])), patch.object(odds_checker, "send_arbitrage_alert", new=AsyncMock(return_value=False)):
             await check_outcomes(
                 game, pinnacle_market, pm_market,
@@ -166,7 +166,7 @@ class OddsMatchingTests(unittest.TestCase):
         self.assertGreater(result["slippage_pct"], 0)
 
     def test_quality_filter_rejects_wide_spread_slippage_and_thin_top_level(self):
-        base = {"spread_pct": 2, "slippage_pct": 1, "top_ask_depth_usd": 50}
+        base = {"spread_pct": 2, "slippage_pct": 1, "top_ask_depth_usd": 50, "book_age_seconds": 1}
         self.assertEqual(odds_checker.avaliar_qualidade_livro(base, 100), (True, "ok"))
         self.assertFalse(odds_checker.avaliar_qualidade_livro(
             {**base, "spread_pct": 9}, 100
@@ -179,6 +179,9 @@ class OddsMatchingTests(unittest.TestCase):
         )[0])
         self.assertFalse(odds_checker.avaliar_qualidade_livro(
             {"spread_pct": 1}, 100
+        )[0])
+        self.assertFalse(odds_checker.avaliar_qualidade_livro(
+            {**base, "book_age_seconds": None}, 100
         )[0])
         self.assertFalse(odds_checker.avaliar_qualidade_livro(
             {**base, "book_age_seconds": 45}, 100
