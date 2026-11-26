@@ -159,6 +159,28 @@ async def processar_comando(texto):
             f"ROI médio por alerta: {roi_texto}",
             "Estimativa teórica; não comprova execução ou lucro real.",
         ]
+        calibracao = metricas["calibration"]
+        if calibracao["samples"]:
+            linhas.extend([
+                "",
+                "CALIBRAÇÃO DAS PROBABILIDADES (Odds Value)",
+                f"Amostras: {calibracao['samples']}",
+                f"Brier score: {calibracao['brier_score']:.4f} (menor é melhor)",
+                f"Erro absoluto médio: {calibracao['mean_abs_error'] * 100:.2f} p.p.",
+            ])
+            for faixa in metricas["calibration_bins"]:
+                linhas.append(
+                    f"{faixa['probability_band']}: previsto "
+                    f"{faixa['predicted'] * 100:.1f}% | observado "
+                    f"{faixa['observed'] * 100:.1f}% ({faixa['samples']} casos)"
+                )
+        if metricas["by_sport"]:
+            linhas.extend(["", "DESEMPENHO POR ESPORTE"])
+            for item in metricas["by_sport"]:
+                taxa_esporte = ((item["wins"] or 0) / (item["wins"] + item["losses"]) * 100
+                                if (item["wins"] or 0) + (item["losses"] or 0) else None)
+                taxa_txt = f"{taxa_esporte:.1f}%" if taxa_esporte is not None else "sem resultado"
+                linhas.append(f"{item['sport']}: {item['total']} alertas, acerto {taxa_txt}")
         for item in metricas["by_type"]:
             linha = f"{item['alert_type']}: {item['total']} alertas, {item['wins'] or 0} acertos, {item['losses'] or 0} erros"
             if item["pnl_samples"]:
