@@ -197,6 +197,33 @@ def get_metrics():
     }
 
 
+def get_sport_metrics(sport):
+    with _connection() as db:
+        row = db.execute("""
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   COUNT(pnl_usd) AS pnl_samples, SUM(pnl_usd) AS pnl_usd,
+                   AVG(roi_pct) AS avg_roi_pct, AVG(ev_pct) AS avg_ev
+            FROM alerts
+            WHERE source = 'odds_value' AND LOWER(COALESCE(sport, '')) = LOWER(?)
+        """, (str(sport).strip(),)).fetchone()
+    return dict(row)
+
+
+def get_extreme_alerts(limit=5, best=True):
+    direction = "DESC" if best else "ASC"
+    with _connection() as db:
+        rows = db.execute(f"""
+            SELECT created_at, sport, outcome, entry_price, reference_prob,
+                   ev_pct, won, pnl_usd, roi_pct
+            FROM alerts
+            WHERE source = 'odds_value' AND ev_pct IS NOT NULL
+            ORDER BY ev_pct {direction}, created_at DESC LIMIT ?
+        """, (max(1, min(int(limit), 20)),)).fetchall()
+    return [dict(row) for row in rows]
+
+
 async def update_resolutions(limit=100):
     """Consulta mercados pendentes na Gamma e marca o resultado do token alertado."""
     with _connection() as db:
