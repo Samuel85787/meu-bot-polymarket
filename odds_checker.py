@@ -403,7 +403,7 @@ def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
     net_shares = gross_shares - fee_shares
     net_profit = fair_prob * net_shares - cost
     spread_pct = (((best_ask - best_bid) / ((best_ask + best_bid) / 2)) * 100
-                  if best_ask is not None and best_bid is not None and best_ask > best_bid else 0.0)
+                  if best_ask is not None and best_bid is not None and best_ask > best_bid else None)
     slippage_pct = ((average_price / best_ask) - 1) * 100 if best_ask else 0.0
     return {
         "stake_usd": cost, "average_price": average_price, "best_ask": best_ask,
@@ -412,6 +412,23 @@ def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
         "top_ask_depth_usd": top_ask_depth_usd,
         "net_profit_usd": net_profit, "net_ev_pct": net_profit / cost * 100,
     }
+
+
+def _book_age_seconds(timestamp):
+    if timestamp is None:
+        return None
+    try:
+        if isinstance(timestamp, (int, float)) or str(timestamp).strip().isdigit():
+            value = float(timestamp)
+            if value > 1e12:
+                value /= 1000.0
+            return max(0.0, time.time() - value)
+        parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return max(0.0, time.time() - parsed.timestamp())
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def avaliar_qualidade_livro(ev_data, stake_usd, max_spread_pct=None,
@@ -434,6 +451,9 @@ def avaliar_qualidade_livro(ev_data, stake_usd, max_spread_pct=None,
     required_depth = max(min_depth, float(stake_usd) * 0.25)
     if depth < required_depth:
         return False, "liquidez no melhor ask insuficiente"
+    age = _safe_metric(ev_data.get("book_age_seconds"))
+    if age is not None and age > config.ODDS_MAX_BOOK_AGE_SECONDS:
+        return False, "livro de ofertas desatualizado"
     return True, "ok"
 
 
@@ -457,7 +477,10 @@ async def _estimate_market_ev(session, token_id, fair_prob, pm_market, stake_usd
             book = await resp.json()
         if not isinstance(book, dict):
             return None
-        return calcular_ev_liquido(fair_prob, book, schedule, stake_usd)
+        result = calcular_ev_liquido(fair_prob, book, schedule, stake_usd)
+        if result is not None:
+            result["book_age_seconds"] = _book_age_seconds(book.get("timestamp"))
+        return result
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError) as exc:
         logger.warning("Falha ao calcular EV no CLOB: %s", type(exc).__name__)
         return None
