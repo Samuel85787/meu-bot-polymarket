@@ -369,6 +369,7 @@ def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
     remaining = float(stake_usd)
     cost = gross_shares = fee_usd = fee_shares = 0.0
     best_ask = best_bid = None
+    top_ask_depth_usd = 0.0
     for level in book.get("asks", []):
         try:
             price, size = float(level["price"]), float(level["size"])
@@ -378,6 +379,7 @@ def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
             continue
         if best_ask is None:
             best_ask = price
+            top_ask_depth_usd = price * size
         fill_cost = min(remaining, price * size)
         shares = fill_cost / price
         cost += fill_cost
@@ -407,8 +409,40 @@ def calcular_ev_liquido(fair_prob, book, fee_schedule, stake_usd):
         "stake_usd": cost, "average_price": average_price, "best_ask": best_ask,
         "best_bid": best_bid, "spread_pct": spread_pct, "slippage_pct": slippage_pct,
         "fee_usd": fee_usd, "gross_shares": gross_shares, "net_shares": net_shares,
+        "top_ask_depth_usd": top_ask_depth_usd,
         "net_profit_usd": net_profit, "net_ev_pct": net_profit / cost * 100,
     }
+
+
+def avaliar_qualidade_livro(ev_data, stake_usd, max_spread_pct=None,
+                         max_slippage_pct=None, min_top_ask_usd=None):
+    """Aplica limites objetivos de spread, slippage e liquidez no melhor ask."""
+    if not isinstance(ev_data, dict):
+        return False, "book inválido"
+    max_spread = config.ODDS_MAX_SPREAD_PCT if max_spread_pct is None else max_spread_pct
+    max_slippage = config.ODDS_MAX_SLIPPAGE_PCT if max_slippage_pct is None else max_slippage_pct
+    min_depth = config.ODDS_MIN_TOP_ASK_USD if min_top_ask_usd is None else min_top_ask_usd
+    spread = _safe_metric(ev_data.get("spread_pct"))
+    slippage = _safe_metric(ev_data.get("slippage_pct"))
+    depth = _safe_metric(ev_data.get("top_ask_depth_usd"))
+    if spread is None or slippage is None or depth is None:
+        return False, "métricas do livro ausentes"
+    if max_spread > 0 and spread > max_spread:
+        return False, "spread acima do limite"
+    if max_slippage > 0 and slippage > max_slippage:
+        return False, "slippage acima do limite"
+    required_depth = max(min_depth, float(stake_usd) * 0.25)
+    if depth < required_depth:
+        return False, "liquidez no melhor ask insuficiente"
+    return True, "ok"
+
+
+def _safe_metric(value):
+    try:
+        number = float(value)
+        return number if math.isfinite(number) and number >= 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 async def _estimate_market_ev(session, token_id, fair_prob, pm_market, stake_usd):
@@ -447,6 +481,10 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team,
             session, token_id, fair_prob, pm_market, config.ODDS_ESTIMATED_STAKE_USD
         )
         if ev_data is None or ev_data["net_ev_pct"] < config.ODDS_EDGE_THRESHOLD * 100:
+            continue
+        qualidade_ok, motivo = avaliar_qualidade_livro(ev_data, config.ODDS_ESTIMATED_STAKE_USD)
+        if not qualidade_ok:
+            logger.debug("Odds Value descartado (%s): %s", info["name"], motivo)
             continue
         key = f"{game.get('id', '')}:{normalize_team_name(info['name'])}:{pm_market.get('conditionId', pm_market.get('id', ''))}"
         now = time.monotonic()
