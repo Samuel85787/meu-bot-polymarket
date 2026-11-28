@@ -229,6 +229,7 @@ def get_sport_metrics(sport):
             SELECT COUNT(*) AS total,
                    SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
                    SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   SUM(CASE WHEN resolved_at IS NOT NULL AND won IS NULL THEN 1 ELSE 0 END) AS draws,
                    COUNT(pnl_usd) AS pnl_samples, SUM(pnl_usd) AS pnl_usd,
                    AVG(roi_pct) AS avg_roi_pct, AVG(ev_pct) AS avg_ev
             FROM alerts
@@ -345,6 +346,7 @@ def get_period_metrics(hours=24):
                    SUM(CASE WHEN resolved_at IS NULL THEN 1 ELSE 0 END) AS pending,
                    SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
                    SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   SUM(CASE WHEN resolved_at IS NOT NULL AND won IS NULL THEN 1 ELSE 0 END) AS draws,
                    COUNT(pnl_usd) AS pnl_samples,
                    SUM(pnl_usd) AS simulated_pnl_usd,
                    AVG(roi_pct) AS avg_roi_pct,
