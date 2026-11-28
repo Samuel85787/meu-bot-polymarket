@@ -209,14 +209,20 @@ class OddsMatchingTests(unittest.TestCase):
 
 class OddsLiveContextTests(unittest.TestCase):
     def test_live_score_uses_only_available_score_feed_data(self):
-        live = {"score": "20-14", "period": "Q2", "elapsed": "04:12"}
+        live = {"score": "20-14", "period": "Q2", "elapsed": "04:12", "live": True}
         with patch.object(odds_checker, "obter_placar_mercado", return_value=live):
             self.assertEqual(
                 odds_checker.formatar_placar_evento({"gameId": "game-1"}),
-                "20-14 | Q2 | 04:12",
+                "AO VIVO | 20-14 | Q2 | 04:12",
+            )
+        finalizado = {"score": "101-99", "period": "Final", "ended": True}
+        with patch.object(odds_checker, "obter_placar_mercado", return_value=finalizado):
+            self.assertEqual(
+                odds_checker.formatar_placar_evento({"gameId": "game-2"}),
+                "ENCERRADO | 101-99 | Final",
             )
         with patch.object(odds_checker, "obter_placar_mercado", return_value=None):
-            self.assertIsNone(odds_checker.formatar_placar_evento({"gameId": "game-2"}))
+            self.assertIsNone(odds_checker.formatar_placar_evento({"gameId": "game-3"}))
 class OddsQuotaTests(unittest.TestCase):
     def tearDown(self):
         odds_checker._quota_used = None
