@@ -382,13 +382,20 @@ def formatar_analise_matchup(analise, reference_prob=None, selected_player=None)
             f"Probabilidade implícita Elo: {name_a} {p * 100:.1f}% | {name_b} {(1-p) * 100:.1f}%",
         ])
         if reference_prob is not None and selected_player:
-            p_sel = p if _normalizar_nome(selected_player) == _normalizar_nome(name_a) else 1 - p
-            diferenca = (p_sel - reference_prob) * 100
-            sinal = "+" if diferenca >= 0 else ""
-            linhas.append(
-                f"Diferença Elo x probabilidade sem vig da Pinnacle ({selected_player}): "
-                f"{sinal}{diferenca:.1f} p.p."
-            )
+            nome_selecionado = _normalizar_nome(selected_player)
+            if nome_selecionado == _normalizar_nome(name_a):
+                p_sel = p
+            elif nome_selecionado == _normalizar_nome(name_b):
+                p_sel = 1 - p
+            else:
+                p_sel = None
+            if p_sel is not None:
+                diferenca = (p_sel - reference_prob) * 100
+                sinal = "+" if diferenca >= 0 else ""
+                linhas.append(
+                    f"Diferença Elo x probabilidade sem vig da Pinnacle ({selected_player}): "
+                    f"{sinal}{diferenca:.1f} p.p."
+                )
     else:
         linhas.append("Elo: dados insuficientes para comparar os dois jogadores.")
 
