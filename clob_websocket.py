@@ -16,6 +16,7 @@ from sports_score_checker import obter_placar_mercado
 from telegram_notifier import send_alert
 from market_context import formatar_contexto_mercado
 from alert_history import record_alert
+from signal_quality import classificar_fluxo
 from health_status import set_service
 
 logger = logging.getLogger(__name__)
@@ -387,20 +388,22 @@ class PolymarketMonitor:
             history.append((now, usd_value, side_raw))
             while history and now - history[0][0] > 1800:
                 history.popleft()
-            buy_trades = [(value, side) for _, value, side in history if side == "BUY"]
-            sell_trades = [(value, side) for _, value, side in history if side == "SELL"]
-            buy_flow = sum(value for value, _ in buy_trades)
-            sell_flow = sum(value for value, _ in sell_trades)
-            net_flow = buy_flow - sell_flow
-            dominant_flow = max(buy_flow, sell_flow)
-            dominant_trades = buy_trades if buy_flow >= sell_flow else sell_trades
-            # Fluxo concentrado exige repetição na mesma direção; compras e vendas
-            # que se anulam não devem parecer pressão compradora ou vendedora.
-            clustered_flow = (
-                len(dominant_trades) >= 3
-                and dominant_flow >= config.MIN_BET_AMOUNT * 2
-                and abs(net_flow) >= config.MIN_BET_AMOUNT
+            buy_trades = [value for _, value, side in history if side == "BUY"]
+            sell_trades = [value for _, value, side in history if side == "SELL"]
+            buy_flow = sum(buy_trades)
+            sell_flow = sum(sell_trades)
+            flow_quality = classificar_fluxo(
+                buy_flow=buy_flow,
+                sell_flow=sell_flow,
+                buy_count=len(buy_trades),
+                sell_count=len(sell_trades),
+                min_flow_usd=config.MIN_BET_AMOUNT,
+                single_trade_usd=usd_value,
+                impact_pct=ratio_liquidez * 100,
+                min_impact_pct=config.WHALE_LIQUIDITY_RATIO * 100,
             )
+            total_flow = flow_quality["total_flow_usd"]
+            clustered_flow = flow_quality["recurrent"]
 
             is_big_bet = usd_value >= config.MIN_BET_AMOUNT
             is_insider_bet = (
@@ -410,16 +413,12 @@ class PolymarketMonitor:
             if not is_big_bet and not is_insider_bet and not clustered_flow:
                 return
 
-            motivos = []
+            motivos = [flow_quality["label"]]
             if is_big_bet:
-                motivos.append("Aposta individual de valor elevado")
+                motivos.append("aposta individual acima do limite configurado")
             if is_insider_bet:
-                motivos.append(f"Impacto relevante no mercado ({ratio_liquidez * 100:.1f}% da liquidez)")
-            if clustered_flow:
-                direcao = "comprador" if net_flow > 0 else "vendedor"
                 motivos.append(
-                    f"Fluxo {direcao} repetido em 30 min "
-                    f"(saldo USD {abs(net_flow):,.0f}; {len(dominant_trades)} operações)"
+                    f"valor equivalente a {ratio_liquidez * 100:.1f}% da liquidez"
                 )
             motivo = " | ".join(motivos)
 
@@ -431,8 +430,9 @@ class PolymarketMonitor:
             placar_raw = await asyncio.to_thread(obter_placar_mercado, market)
             placar = self.formatar_placar(placar_raw)
             fluxo = (
-                f"30 min: compra USD {buy_flow:,.0f} | venda USD {sell_flow:,.0f} "
-                f"| {len(history)} trades"
+                f"30 min: compras ${buy_flow:,.0f} ({len(buy_trades)} operações) | "
+                f"vendas ${sell_flow:,.0f} ({len(sell_trades)} operações) | "
+                f"saldo ${flow_quality['net_flow_usd']:+,.0f}"
             )
             book = self.formatar_book(data.get("asset_id", ""))
             await self.enviar_alerta_baleia(
