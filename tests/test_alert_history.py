@@ -119,6 +119,11 @@ class AlertHistoryTests(unittest.TestCase):
         self.assertIsNone(metrics["win_rate"])
         self.assertIsNone(metrics["odds_win_rate"])
         self.assertEqual(metrics["pnl_samples"], 1)
+        resumo = alert_history.get_period_metrics(24)
+        self.assertEqual(resumo["odds_draws"], 1)
+        ranking = alert_history.get_sport_ranking(30, min_samples=1)
+        self.assertEqual(ranking[0]["draws"], 1)
+        self.assertIsNone(ranking[0]["win_rate"])
 
     def test_backtest_includes_partial_settlement_without_calling_it_a_win(self):
         market = {"id": "market-half", "_sport": "NFL"}
