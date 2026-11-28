@@ -125,10 +125,10 @@ class TennisApiTests(unittest.TestCase):
         }
         texto = tennis_api.formatar_perfil(perfil)
         self.assertIn("Elo geral: 1900", texto)
-        self.assertIn("Quadra rápida 1880", texto)
-        self.assertIn("Saibro 1920", texto)
+        self.assertIn("Quadra rápida: 1880", texto)
+        self.assertIn("Saibro: 1920", texto)
         self.assertIn("Rival", texto)
-        self.assertIn("Dados estatísticos descritivos", texto)
+        self.assertIn("Fonte atualizada diariamente", texto)
 
     def test_ambiguidades_h2h_mostra_nome_e_pais_dos_candidatos(self):
         resultado = {
