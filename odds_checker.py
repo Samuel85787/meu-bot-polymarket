@@ -83,7 +83,11 @@ def formatar_placar_evento(market):
     placar = obter_placar_mercado(market or {})
     if not isinstance(placar, dict):
         return None
+    status = "AO VIVO" if placar.get("live") is True else (
+        "ENCERRADO" if placar.get("ended") is True else None
+    )
     partes = [
+        status,
         str(placar.get("score") or "").strip(),
         str(placar.get("period") or "").strip(),
         str(placar.get("elapsed") or "").strip(),
