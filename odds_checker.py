@@ -15,6 +15,7 @@ from alert_history import record_alert
 from health_status import set_service
 from signal_quality import classificar_qualidade_odds
 from sports_score_checker import obter_placar_mercado
+from tennis_api import AcesAPIError, analisar_matchup, formatar_analise_matchup
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,52 @@ def selecionar_feeds_para_ciclo(sports, max_feeds=None):
         selecionados.append((chaves[indice], categoria))
         _sport_rotation[categoria] = (indice + 1) % len(chaves)
     return selecionados[:limite]
+
+
+
+def detectar_superficie_tenis(game, pm_market):
+    """Retorna somente piso explicitamente presente nos metadados/textos do evento."""
+    campos = ("surface", "playing_surface", "court_surface", "surface_name", "court")
+    objetos = [game or {}, pm_market or {}]
+    for objeto in list(objetos):
+        for evento in objeto.get("events") or []:
+            if isinstance(evento, dict):
+                objetos.append(evento)
+
+    aliases = {
+        "hard": "hard", "hardcourt": "hard", "hard court": "hard",
+        "clay": "clay", "clay court": "clay", "saibro": "clay",
+        "grass": "grass", "grass court": "grass", "grama": "grass",
+        "carpet": "carpet",
+    }
+    for objeto in objetos:
+        for campo in campos:
+            valor = str(objeto.get(campo) or "").strip().lower()
+            if valor in aliases:
+                return aliases[valor]
+
+    textos = []
+    for objeto in objetos:
+        for campo in ("question", "description", "slug", "title", "name", "groupItemTitle"):
+            valor = objeto.get(campo)
+            if valor:
+                textos.append(str(valor).lower())
+    texto = " ".join(textos)
+    padroes = (
+        (r"\b(?:clay court|clay|saibro)\b", "clay"),
+        (r"\b(?:grass court|grass|grama)\b", "grass"),
+        (r"\b(?:hard court|hardcourt)\b", "hard"),
+        (r"\bcarpet court\b|\bcarpete\b", "carpet"),
+    )
+    for padrao, superficie in padroes:
+        if re.search(padrao, texto):
+            return superficie
+    return None
+
+
+def _eh_pre_jogo(game):
+    inicio = _parse_datetime((game or {}).get("commence_time"))
+    return inicio is not None and inicio > datetime.now(timezone.utc)
 
 
 def _market_text(pm_market):
@@ -631,8 +678,33 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team,
         last_alert = _last_odds_alert.get(key)
         if last_alert is not None and now - last_alert < config.ODDS_COOLDOWN_SECONDS:
             continue
+        analise_tenis = None
+        esporte = str(pm_market.get("_sport") or pm_market.get("sport") or "")
+        if esporte in ("Tênis ATP", "Tênis WTA") and _eh_pre_jogo(game):
+            liga = "wta" if esporte == "Tênis WTA" else "tennis"
+            superficie = detectar_superficie_tenis(game, pm_market)
+            try:
+                analise_tenis = await analisar_matchup(
+                    home_team, away_team, league=liga, surface=superficie
+                )
+                if analise_tenis.get("status") != "ok":
+                    logger.info(
+                        "Análise AcesAPI não concluiu para %s x %s: %s",
+                        home_team, away_team, analise_tenis.get("status"),
+                    )
+                    analise_tenis = None
+                else:
+                    # A referência da Pinnacle é comparada ao Elo, mas não substituída.
+                    analise_tenis["reference_prob"] = fair_prob
+                    analise_tenis["selected_player"] = info["name"]
+            except AcesAPIError as exc:
+                logger.warning("AcesAPI indisponível para análise pré-jogo: %s", exc)
+            except Exception as exc:
+                logger.warning("Falha na análise pré-jogo de tênis: %s", type(exc).__name__)
+
         enviado = await send_arbitrage_alert(
-            game, info, info["odds"], fair_prob, ev_data, pm_market, token_id
+            game, info, info["odds"], fair_prob, ev_data, pm_market, token_id,
+            tennis_analysis=analise_tenis,
         )
         if enviado:
             _last_odds_alert[key] = now
@@ -665,7 +737,7 @@ def find_pm_price(pm_market, target_side, yes_side, home_team, away_team):
     return None
 
 
-async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm_market, token_id=None):
+async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm_market, token_id=None, tennis_analysis=None):
     try:
         slug = pm_market.get("slug")
         link = (
@@ -683,6 +755,15 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
         )
         placar = formatar_placar_evento(pm_market)
         placar_texto = f"⏱️ Placar ao vivo: {placar}\\n" if placar else ""
+        tennis_analysis_text = ""
+        if tennis_analysis and tennis_analysis.get("status") == "ok":
+            tennis_analysis_text = (
+                "\\n\n" + formatar_analise_matchup(
+                    tennis_analysis,
+                    reference_prob=tennis_analysis.get("reference_prob"),
+                    selected_player=tennis_analysis.get("selected_player"),
+                ) + "\\n"
+            )
         message = (
             "🎯 OPORTUNIDADE ENCONTRADA\n\n"
             f"🏟️ {game.get('home_team', '')} x {game.get('away_team', '')}\n"
