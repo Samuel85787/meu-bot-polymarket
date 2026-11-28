@@ -44,6 +44,7 @@ def initialize():
                 details TEXT,
                 resolved_at REAL,
                 won INTEGER,
+                settlement_value REAL,
                 pnl_usd REAL,
                 roi_pct REAL,
                 sport TEXT
@@ -53,6 +54,8 @@ def initialize():
         db.execute("CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at)")
         # Migração aditiva: mantém bancos SQLite já existentes compatíveis.
         columns = {row["name"] for row in db.execute("PRAGMA table_info(alerts)")}
+        if "settlement_value" not in columns:
+            db.execute("ALTER TABLE alerts ADD COLUMN settlement_value REAL")
         if "pnl_usd" not in columns:
             db.execute("ALTER TABLE alerts ADD COLUMN pnl_usd REAL")
         if "roi_pct" not in columns:
@@ -99,13 +102,19 @@ def _finite_or_none(value):
         return None
 
 
-def simulated_result(alert_type, entry_price, stake_usd, details, won):
-    """Retorno hipotético de uma compra binária; não representa execução real."""
+def simulated_result(alert_type, entry_price, stake_usd, details, outcome):
+    """Retorno hipotético com liquidação binária ou parcial (ex.: empate 50/50)."""
     if str(alert_type).strip().lower() not in {"ev líquido", "odds value"}:
         return None, None
     price = _finite_or_none(entry_price)
     stake = _finite_or_none(stake_usd)
     if price is None or stake is None or not 0 < price < 1 or stake <= 0:
+        return None, None
+    if isinstance(outcome, bool):
+        payout_value = 1.0 if outcome else 0.0
+    else:
+        payout_value = _finite_or_none(outcome)
+    if payout_value is None or not 0 <= payout_value <= 1:
         return None, None
     if not isinstance(details, dict):
         try:
@@ -119,9 +128,8 @@ def simulated_result(alert_type, entry_price, stake_usd, details, won):
     if net_shares is None:
         fee_usd = _finite_or_none(details.get("fee_usd")) or 0.0
         net_shares = max(0.0, gross_shares - fee_usd / price)
-    pnl = (net_shares - stake) if won else -stake
+    pnl = net_shares * payout_value - stake
     return pnl, pnl / stake * 100
-
 
 def get_metrics():
     with _connection() as db:
@@ -130,15 +138,19 @@ def get_metrics():
             "SELECT COUNT(*) FROM alerts WHERE token_id IS NOT NULL AND resolved_at IS NULL"
         ).fetchone()[0]
         settled = db.execute(
-            "SELECT COUNT(*) FROM alerts WHERE won IS NOT NULL"
+            "SELECT COUNT(*) FROM alerts WHERE resolved_at IS NOT NULL"
+        ).fetchone()[0]
+        draws = db.execute(
+            "SELECT COUNT(*) FROM alerts WHERE resolved_at IS NOT NULL AND won IS NULL"
         ).fetchone()[0]
         wins = db.execute("SELECT COUNT(*) FROM alerts WHERE won = 1").fetchone()[0]
         losses = db.execute("SELECT COUNT(*) FROM alerts WHERE won = 0").fetchone()[0]
         odds_counts = db.execute("""
-            SELECT COUNT(*) AS settled,
+            SELECT SUM(CASE WHEN won IS NOT NULL THEN 1 ELSE 0 END) AS decisive,
+                   SUM(CASE WHEN resolved_at IS NOT NULL AND won IS NULL THEN 1 ELSE 0 END) AS draws,
                    SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
                    SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses
-            FROM alerts WHERE source = 'odds_value' AND won IS NOT NULL
+            FROM alerts WHERE source = 'odds_value'
         """).fetchone()
         avg_ev = db.execute(
             "SELECT AVG(ev_pct) FROM alerts WHERE ev_pct IS NOT NULL"
@@ -175,6 +187,7 @@ def get_metrics():
                    COUNT(*) AS total,
                    SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
                    SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   SUM(CASE WHEN resolved_at IS NOT NULL AND won IS NULL THEN 1 ELSE 0 END) AS draws,
                    COUNT(pnl_usd) AS pnl_samples, SUM(pnl_usd) AS pnl_usd,
                    AVG(roi_pct) AS avg_roi_pct
             FROM alerts WHERE source = 'odds_value'
@@ -184,6 +197,7 @@ def get_metrics():
             SELECT alert_type, COUNT(*) AS total,
                    SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
                    SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   SUM(CASE WHEN resolved_at IS NOT NULL AND won IS NULL THEN 1 ELSE 0 END) AS draws,
                    COUNT(pnl_usd) AS pnl_samples, SUM(pnl_usd) AS pnl_usd,
                    AVG(roi_pct) AS avg_roi_pct
             FROM alerts GROUP BY alert_type ORDER BY total DESC
@@ -192,11 +206,12 @@ def get_metrics():
         "total": total, "pending": pending, "settled": settled,
         "wins": wins, "losses": losses,
         "win_rate": (wins / settled * 100) if settled else None,
-        "odds_settled": odds_counts["settled"],
+        "odds_settled": odds_counts["decisive"] or 0,
+        "odds_draws": odds_counts["draws"] or 0,
         "odds_wins": odds_counts["wins"] or 0,
         "odds_losses": odds_counts["losses"] or 0,
-        "odds_win_rate": ((odds_counts["wins"] or 0) / odds_counts["settled"] * 100)
-                         if odds_counts["settled"] else None,
+        "odds_win_rate": ((odds_counts["wins"] or 0) / odds_counts["decisive"] * 100)
+                         if odds_counts["decisive"] else None,
         "avg_ev": avg_ev,
         "pnl_samples": pnl["samples"],
         "simulated_pnl_usd": pnl["pnl_usd"],
@@ -223,11 +238,16 @@ def get_sport_metrics(sport):
 
 
 def replay_backtest(stake_usd=100.0, min_ev_pct=None, sport=None):
-    """Reproduz sinais Odds Value já registrados; não busca candles históricos externos."""
+    """Reproduz alertas Odds Value encerrados, inclusive liquidações parciais."""
     stake = _finite_or_none(stake_usd)
     if stake is None or stake <= 0:
         raise ValueError("stake_usd deve ser positivo")
-    clauses = ["source = 'odds_value'", "won IS NOT NULL", "entry_price IS NOT NULL"]
+    clauses = [
+        "source = 'odds_value'",
+        "resolved_at IS NOT NULL",
+        "(settlement_value IS NOT NULL OR won IS NOT NULL)",
+        "entry_price IS NOT NULL",
+    ]
     params = []
     if min_ev_pct is not None:
         threshold = _finite_or_none(min_ev_pct)
@@ -240,7 +260,7 @@ def replay_backtest(stake_usd=100.0, min_ev_pct=None, sport=None):
         params.append(str(sport).strip())
     with _connection() as db:
         rows = db.execute(
-            "SELECT alert_type, entry_price, stake_usd, details, won, ev_pct, sport "
+            "SELECT alert_type, entry_price, stake_usd, details, won, settlement_value, ev_pct, sport "
             "FROM alerts WHERE " + " AND ".join(clauses) + " ORDER BY created_at ASC",
             params,
         ).fetchall()
@@ -249,39 +269,46 @@ def replay_backtest(stake_usd=100.0, min_ev_pct=None, sport=None):
         historical_stake = _finite_or_none(row["stake_usd"])
         if not historical_stake or historical_stake <= 0:
             continue
+        outcome_value = row["settlement_value"]
+        if outcome_value is None:
+            outcome_value = bool(row["won"])
         pnl, roi = simulated_result(
             row["alert_type"], row["entry_price"], historical_stake,
-            row["details"], bool(row["won"]),
+            row["details"], outcome_value,
         )
         if roi is None:
             continue
         results.append({
             "sport": row["sport"] or "Não identificado",
-            "won": bool(row["won"]), "ev_pct": row["ev_pct"],
-            "roi_pct": roi, "pnl_usd": stake * roi / 100.0,
+            "won": True if outcome_value is True or outcome_value == 1 else (False if outcome_value is False or outcome_value == 0 else None),
+            "ev_pct": row["ev_pct"],
+            "roi_pct": roi,
+            "pnl_usd": stake * roi / 100.0,
         })
     cumulative = peak = max_drawdown = 0.0
     for item in results:
         cumulative += item["pnl_usd"]
         peak = max(peak, cumulative)
         max_drawdown = max(max_drawdown, peak - cumulative)
-    wins = sum(1 for item in results if item["won"])
+    wins = sum(1 for item in results if item["won"] is True)
+    losses = sum(1 for item in results if item["won"] is False)
+    draws = sum(1 for item in results if item["won"] is None)
     return {
-        "samples": len(results), "wins": wins, "losses": len(results) - wins,
-        "win_rate": wins / len(results) * 100 if results else None,
+        "samples": len(results), "wins": wins, "losses": losses, "draws": draws,
+        "win_rate": wins / (wins + losses) * 100 if (wins + losses) else None,
         "total_pnl_usd": sum(item["pnl_usd"] for item in results) if results else None,
         "avg_roi_pct": sum(item["roi_pct"] for item in results) / len(results) if results else None,
         "max_drawdown_usd": max_drawdown if results else None,
         "by_sport": {
             name: {
                 "samples": sum(1 for item in results if item["sport"] == name),
+                "draws": sum(1 for item in results if item["sport"] == name and item["won"] is None),
                 "pnl_usd": sum(item["pnl_usd"] for item in results if item["sport"] == name),
             }
             for name in sorted({item["sport"] for item in results})
         },
-        "assumptions": "Replay de alertas Odds Value armazenados; não inclui sinais não registrados, execução real ou dados históricos externos.",
+        "assumptions": "Replay de alertas Odds Value armazenados; inclui liquidações parciais conhecidas, mas não sinais não registrados nem execução real.",
     }
-
 
 def get_extreme_alerts(limit=5, best=True):
     direction = "DESC" if best else "ASC"
@@ -336,6 +363,7 @@ def get_period_metrics(hours=24):
         "odds_pending": odds["pending"] or 0,
         "odds_wins": odds["wins"] or 0,
         "odds_losses": odds["losses"] or 0,
+        "odds_draws": odds["draws"] or 0,
         "pnl_samples": odds["pnl_samples"] or 0,
         "simulated_pnl_usd": odds["simulated_pnl_usd"],
         "avg_roi_pct": odds["avg_roi_pct"],
@@ -358,6 +386,7 @@ def get_sport_ranking(days=30, min_samples=3):
                    COUNT(pnl_usd) AS samples,
                    SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
                    SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   SUM(CASE WHEN resolved_at IS NOT NULL AND won IS NULL THEN 1 ELSE 0 END) AS draws,
                    SUM(pnl_usd) AS simulated_pnl_usd,
                    AVG(roi_pct) AS avg_roi_pct,
                    AVG(ev_pct) AS avg_ev_pct
@@ -374,6 +403,7 @@ def get_sport_ranking(days=30, min_samples=3):
     for row in rows:
         item = dict(row)
         resolvidos = (item["wins"] or 0) + (item["losses"] or 0)
+        item["draws"] = item["draws"] or 0
         item["win_rate"] = (
             (item["wins"] or 0) / resolvidos * 100 if resolvidos else None
         )
@@ -421,22 +451,20 @@ async def update_resolutions(limit=100):
                     final_price = float(prices[index])
                 except (ValueError, TypeError, IndexError, KeyError):
                     continue
-                if final_price >= 0.99:
-                    won = 1
-                elif final_price <= 0.01:
-                    won = 0
-                else:
+                final_price = _finite_or_none(final_price)
+                if final_price is None or not 0 <= final_price <= 1:
                     continue
+                won = 1 if final_price >= 0.99 else (0 if final_price <= 0.01 else None)
                 pnl, roi = simulated_result(
                     row["alert_type"], row["entry_price"], row["stake_usd"],
-                    row["details"], bool(won),
+                    row["details"], final_price,
                 )
                 with _connection() as db:
                     cursor = db.execute(
                         """UPDATE alerts
-                           SET resolved_at = ?, won = ?, pnl_usd = ?, roi_pct = ?
+                           SET resolved_at = ?, won = ?, settlement_value = ?, pnl_usd = ?, roi_pct = ?
                            WHERE id = ? AND resolved_at IS NULL""",
-                        (time.time(), won, pnl, roi, row["id"]),
+                        (time.time(), won, final_price, pnl, roi, row["id"]),
                     )
                     resolved += cursor.rowcount
             except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError, OSError) as exc:
