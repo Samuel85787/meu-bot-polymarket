@@ -154,3 +154,14 @@ def keyboard_url(url, label="Abrir mercado"):
             "url": candidate,
         }]]
     }
+
+
+def multiplicador_bruto_contrato(preco):
+    """Gross payout multiple of a $1 binary contract, before fees."""
+    try:
+        valor = float(preco)
+    except (TypeError, ValueError):
+        return None
+    if not 0 < valor <= 1:
+        return None
+    return f"{1.0 / valor:.2f}x"
