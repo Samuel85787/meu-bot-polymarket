@@ -6,7 +6,7 @@ def _numero(valor, padrao=0.0):
         numero = float(valor)
         if numero != numero or numero in (float("inf"), float("-inf")):
             return padrao
-        return max(0.0, numero)
+        return numero if numero >= 0 else padrao
     except (TypeError, ValueError):
         return padrao
 
@@ -66,7 +66,7 @@ def classificar_qualidade_odds(ev_data, minimum_edge_pct, max_spread_pct,
                                max_book_age_seconds):
     """Classifica condições de preço/execução, não a chance real de o resultado vencer."""
     if not isinstance(ev_data, dict):
-        return {"label": "Dados insuficientes", "score": 0, "max_score": 8}
+        return {"label": "Dados insuficientes", "score": 0, "max_score": 7}
 
     ev = _numero(ev_data.get("net_ev_pct"), -1)
     spread = _numero(ev_data.get("spread_pct"), -1)
@@ -106,4 +106,4 @@ def classificar_qualidade_odds(ev_data, minimum_edge_pct, max_spread_pct,
     else:
         label = "No limite dos filtros"
 
-    return {"label": label, "score": score, "max_score": 8}
+    return {"label": label, "score": score, "max_score": 7}
