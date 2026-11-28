@@ -296,6 +296,91 @@ def get_extreme_alerts(limit=5, best=True):
     return [dict(row) for row in rows]
 
 
+
+def get_period_metrics(hours=24):
+    """Resumo dos alertas recentes; P&L é apenas hipotético para Odds Value."""
+    periodo = _finite_or_none(hours)
+    if periodo is None or periodo <= 0:
+        raise ValueError("hours deve ser positivo")
+    periodo = min(periodo, 24 * 365)
+    cutoff = time.time() - periodo * 3600
+
+    with _connection() as db:
+        total = db.execute(
+            "SELECT COUNT(*) FROM alerts WHERE created_at >= ?", (cutoff,)
+        ).fetchone()[0]
+        by_source = db.execute(
+            "SELECT source, COUNT(*) AS total FROM alerts "
+            "WHERE created_at >= ? GROUP BY source", (cutoff,)
+        ).fetchall()
+        odds = db.execute("""
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN resolved_at IS NULL THEN 1 ELSE 0 END) AS pending,
+                   SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   COUNT(pnl_usd) AS pnl_samples,
+                   SUM(pnl_usd) AS simulated_pnl_usd,
+                   AVG(roi_pct) AS avg_roi_pct,
+                   AVG(ev_pct) AS avg_ev_pct
+            FROM alerts
+            WHERE source = 'odds_value' AND created_at >= ?
+        """, (cutoff,)).fetchone()
+
+    counts = {row["source"]: row["total"] for row in by_source}
+    return {
+        "hours": periodo,
+        "total": total,
+        "whale_alerts": counts.get("whale", 0),
+        "spike_alerts": counts.get("price_spike", 0),
+        "odds_alerts": odds["total"] or 0,
+        "odds_pending": odds["pending"] or 0,
+        "odds_wins": odds["wins"] or 0,
+        "odds_losses": odds["losses"] or 0,
+        "pnl_samples": odds["pnl_samples"] or 0,
+        "simulated_pnl_usd": odds["simulated_pnl_usd"],
+        "avg_roi_pct": odds["avg_roi_pct"],
+        "avg_ev_pct": odds["avg_ev_pct"],
+    }
+
+
+def get_sport_ranking(days=30, min_samples=3):
+    """Ranking por ROI simulado dos Odds Value encerrados; não inclui lucro real."""
+    periodo = _finite_or_none(days)
+    if periodo is None or periodo <= 0:
+        raise ValueError("days deve ser positivo")
+    periodo = min(periodo, 3650)
+    minimo = max(1, min(int(min_samples), 100))
+    cutoff = time.time() - periodo * 86400
+
+    with _connection() as db:
+        rows = db.execute("""
+            SELECT COALESCE(sport, 'Não identificado') AS sport,
+                   COUNT(pnl_usd) AS samples,
+                   SUM(CASE WHEN won = 1 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN won = 0 THEN 1 ELSE 0 END) AS losses,
+                   SUM(pnl_usd) AS simulated_pnl_usd,
+                   AVG(roi_pct) AS avg_roi_pct,
+                   AVG(ev_pct) AS avg_ev_pct
+            FROM alerts
+            WHERE source = 'odds_value'
+              AND created_at >= ?
+              AND pnl_usd IS NOT NULL
+            GROUP BY sport
+            HAVING COUNT(pnl_usd) >= ?
+            ORDER BY avg_roi_pct DESC, samples DESC
+        """, (cutoff, minimo)).fetchall()
+
+    ranking = []
+    for row in rows:
+        item = dict(row)
+        resolvidos = (item["wins"] or 0) + (item["losses"] or 0)
+        item["win_rate"] = (
+            (item["wins"] or 0) / resolvidos * 100 if resolvidos else None
+        )
+        ranking.append(item)
+    return ranking
+
+
 async def update_resolutions(limit=100):
     """Consulta mercados pendentes na Gamma e marca o resultado do token alertado."""
     with _connection() as db:
