@@ -432,14 +432,16 @@ class PolymarketMonitor:
             if not is_big_bet and not is_insider_bet and not clustered_flow:
                 return
 
-            motivos = [flow_quality["label"]]
+            motivos = []
+            if clustered_flow:
+                motivos.append(flow_quality["label"])
             if is_big_bet:
-                motivos.append("aposta individual acima do limite configurado")
+                motivos.append(f"ordem acima do limite de ${config.MIN_BET_AMOUNT:,.0f}")
             if is_insider_bet:
-                motivos.append(
-                    f"valor equivalente a {ratio_liquidez * 100:.1f}% da liquidez"
-                )
-            motivo = " | ".join(motivos)
+                motivos.append(f"impacto de {ratio_liquidez * 100:.1f}% da liquidez")
+            if not motivos:
+                motivos.append(flow_quality["label"])
+            motivo = "  ·  ".join(dict.fromkeys(motivos))
 
             slug = market.get("slug", "unknown")
             alert_key = f"whale_{slug}_{outcome_name}_{side_raw}"
