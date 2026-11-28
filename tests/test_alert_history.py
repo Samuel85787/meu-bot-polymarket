@@ -74,6 +74,7 @@ class AlertHistoryTests(unittest.TestCase):
             alert_history.initialize()
             with alert_history._connection() as migrated:
                 columns = {row["name"] for row in migrated.execute("PRAGMA table_info(alerts)")}
+        self.assertIn("settlement_value", columns)
         self.assertIn("pnl_usd", columns)
         self.assertIn("roi_pct", columns)
 
@@ -89,6 +90,55 @@ class AlertHistoryTests(unittest.TestCase):
         self.assertAlmostEqual(roi_win, 98.0)
         self.assertAlmostEqual(pnl_loss, -100.0)
         self.assertAlmostEqual(roi_loss, -100.0)
+
+    def test_simulated_result_supports_half_settlement(self):
+        details = {"gross_shares": 200, "net_shares": 198}
+        pnl, roi = alert_history.simulated_result(
+            "EV líquido", 0.5, 100, details, 0.5
+        )
+        self.assertAlmostEqual(pnl, -1.0)
+        self.assertAlmostEqual(roi, -1.0)
+
+    def test_draw_is_resolved_but_not_counted_as_win_or_loss(self):
+        market = {"id": "market-draw", "_sport": "NFL"}
+        alert_history.record_alert(
+            "odds_value", "EV líquido", market, token_id="token-draw",
+            entry_price=0.37, reference_prob=0.55, stake_usd=100,
+            details={"gross_shares": 270.27, "net_shares": 270.27},
+        )
+        with alert_history._connection() as db:
+            db.execute(
+                "UPDATE alerts SET resolved_at = 100, settlement_value = 0.5, "
+                "pnl_usd = 35.135, roi_pct = 35.135 WHERE token_id = 'token-draw'"
+            )
+        metrics = alert_history.get_metrics()
+        self.assertEqual(metrics["settled"], 1)
+        self.assertEqual(metrics["draws"], 1)
+        self.assertEqual(metrics["odds_settled"], 0)
+        self.assertEqual(metrics["odds_draws"], 1)
+        self.assertIsNone(metrics["win_rate"])
+        self.assertIsNone(metrics["odds_win_rate"])
+        self.assertEqual(metrics["pnl_samples"], 1)
+
+    def test_backtest_includes_partial_settlement_without_calling_it_a_win(self):
+        market = {"id": "market-half", "_sport": "NFL"}
+        alert_history.record_alert(
+            "odds_value", "EV líquido", market, token_id="half-win",
+            entry_price=0.5, reference_prob=0.6, stake_usd=100, ev_pct=10,
+            details={"gross_shares": 200, "net_shares": 198},
+        )
+        with alert_history._connection() as db:
+            db.execute(
+                "UPDATE alerts SET resolved_at = 100, settlement_value = 0.5, "
+                "pnl_usd = -1, roi_pct = -1 WHERE token_id = 'half-win'"
+            )
+        result = alert_history.replay_backtest(50, sport="NFL")
+        self.assertEqual(result["samples"], 1)
+        self.assertEqual(result["wins"], 0)
+        self.assertEqual(result["losses"], 0)
+        self.assertEqual(result["draws"], 1)
+        self.assertIsNone(result["win_rate"])
+        self.assertAlmostEqual(result["total_pnl_usd"], -0.5)
 
     def test_replay_backtest_scales_historical_alert_returns(self):
         market = {"id": "market-replay", "_sport": "NBA"}
