@@ -22,6 +22,7 @@ SUPPORTED_SPORTS = ("NBA", "NFL", "Tênis ATP", "Tênis WTA", "CS2", "VALORANT")
 SPORT_CACHE_SECONDS = 21600
 _sports_cache = []
 _sports_cache_at = 0.0
+_sport_rotation = {}
 _last_odds_alert = {}
 _quota_used = None
 _quota_remaining = None
@@ -145,6 +146,28 @@ async def discover_supported_sports(session):
         set_service("odds_api", "error", type(exc).__name__)
         logger.warning("Falha ao descobrir esportes na Odds API: %s", type(exc).__name__)
         return list(_sports_cache)
+
+
+
+def selecionar_feeds_para_ciclo(sports, max_feeds=None):
+    """Seleciona no máximo um feed por modalidade e alterna torneios entre ciclos."""
+    limite = max(1, int(max_feeds or config.ODDS_API_MAX_FEEDS_PER_CYCLE))
+    agrupados = {}
+    for key, categoria in sports or []:
+        if key and categoria in SUPPORTED_SPORTS:
+            agrupados.setdefault(categoria, [])
+            if key not in agrupados[categoria]:
+                agrupados[categoria].append(key)
+
+    selecionados = []
+    for categoria in SUPPORTED_SPORTS:
+        chaves = agrupados.get(categoria, [])
+        if not chaves:
+            continue
+        indice = _sport_rotation.get(categoria, 0) % len(chaves)
+        selecionados.append((chaves[indice], categoria))
+        _sport_rotation[categoria] = (indice + 1) % len(chaves)
+    return selecionados[:limite]
 
 
 def _market_text(pm_market):
@@ -301,6 +324,7 @@ async def check_arbitrage(pm_markets=None):
     timeout = aiohttp.ClientTimeout(total=25, connect=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         sports = await discover_supported_sports(session)
+        sports = selecionar_feeds_para_ciclo(sports, config.ODDS_API_MAX_FEEDS_PER_CYCLE)
         if not sports:
             logger.warning("Nenhum esporte suportado disponível na Odds API nesta conta")
             return
