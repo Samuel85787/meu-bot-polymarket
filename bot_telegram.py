@@ -217,7 +217,7 @@ async def processar_comando(texto):
         except (ValueError, TypeError):
             await enviar_mensagem("Uso: /backtest [stake] [EV mínimo %] [esporte]. Ex.: /backtest 100 5 NBA")
 
-    elif texto.startswith("/sport") or texto.startswith("/esporte"):
+    elif texto == "/sport" or texto.startswith("/sport ") or texto == "/esporte" or texto.startswith("/esporte "):
         partes = texto.split(maxsplit=1)
         if len(partes) < 2:
             await enviar_mensagem("Use: /sport NBA | NFL | Tênis ATP | Tênis WTA | CS2 | VALORANT")
