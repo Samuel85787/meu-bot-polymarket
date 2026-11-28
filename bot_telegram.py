@@ -569,8 +569,7 @@ async def processar_comando(texto):
         await enviar_mensagem(f"Alertas de baleia: {estado}")
 
     else:
-        await enviar_mensagem("Comando não reconhecido.
-Digite /ajuda para ver os comandos disponíveis.")
+        await enviar_mensagem("Comando não reconhecido.\nDigite /ajuda para ver os comandos disponíveis.")
 
 
 async def iniciar_monitor():
