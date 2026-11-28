@@ -36,6 +36,14 @@ class ClobMonitorTests(unittest.TestCase):
         })
         self.assertAlmostEqual(monitor.order_books["token-1"]["spread"], 0.01)
 
+    def test_event_title_is_shortened_without_market_rules(self):
+        monitor = PolymarketMonitor([])
+        market = {
+            "question": "In the upcoming NFL football game between Packers and Rams, "
+            "originally scheduled for Wednesday, November 25, 2026 at 8:00 PM ET.",
+        }
+        self.assertEqual(monitor.titulo_evento_curto(market), "Packers x Rams")
+
     def test_subscription_sync_adds_and_removes_tokens(self):
         monitor = PolymarketMonitor([{"clobTokenIds": ["old-token"], "outcomes": ["Yes"]}])
         monitor.connected = True
