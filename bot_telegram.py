@@ -399,8 +399,8 @@ async def processar_comando(texto):
                     await enviar_mensagem(
                         "Não consegui identificar as duas equipes. Confira os nomes." + extra
                     )
-            except SportsAPIError as exc:
-                await enviar_mensagem(f"API-SPORTS: {exc}")
+            except SportsDataError as exc:
+                await enviar_mensagem(f"📡 Dados ESPN indisponíveis: {exc}")
 
     elif texto.startswith("/prejogo") or texto.startswith("/analise"):
         argumentos = texto.split(maxsplit=1)[1].strip() if len(texto.split(maxsplit=1)) > 1 else ""
@@ -526,7 +526,7 @@ async def processar_comando(texto):
             "━━━━━━━━━━━━━━━━━━━━\n"
             f"Monitor: {estado}\n"
             f"Mercados acompanhados: {len(mercados)}\n"
-            f"Filtro mínimo: \${config.MIN_BET_AMOUNT:.2f}\n"
+            f"Filtro mínimo: ${config.MIN_BET_AMOUNT:.2f}\n"
             f"Oscilação mínima: {config.PRICE_SPIKE_THRESHOLD * 100:.1f}%\n"
             f"Alertas de baleias: {baleias}\n\n"
             "📡 SAÚDE DOS SERVIÇOS\n"
