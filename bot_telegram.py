@@ -370,7 +370,7 @@ async def processar_comando(texto):
             argumentos = argumentos[4:].strip()
         elif argumentos.startswith("atp "):
             argumentos = argumentos[4:].strip()
-        confronto = re.split(r"\s+(?:vs|x)\s+ ", argumentos, maxsplit=1)
+        confronto = re.split(r"\s+(?:vs|x)\s+", argumentos, maxsplit=1)
         if len(confronto) != 2 or not all(confronto):
             await enviar_mensagem("Use: /h2h [wta] jogador 1 vs jogador 2. Ex.: /h2h sinner vs alcaraz")
         else:
