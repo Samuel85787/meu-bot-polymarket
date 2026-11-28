@@ -200,7 +200,7 @@ class PolymarketMonitor:
             if value and len(str(value).strip()) <= 90:
                 return str(value).strip()
         question = str(market.get("question") or "")
-        match = re.search(r"between\s+(.+?)\s+and\s+(.+?)(?:,|\\.|$)", question, re.IGNORECASE)
+        match = re.search(r"between\s+(.+?)\s+and\s+(.+?)(?:,|\.|$)", question, re.IGNORECASE)
         if match:
             return f"{match.group(1).strip()} x {match.group(2).strip()}"
         return question[:87].rstrip() + ("..." if len(question) > 87 else "") or "Evento não identificado"
