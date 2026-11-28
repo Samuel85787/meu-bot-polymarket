@@ -24,26 +24,24 @@ class SportsTelegramCommandTests(unittest.IsolatedAsyncioTestCase):
         send.assert_awaited_once_with("NFL analysis")
 
     async def test_nba_schedule_command_accepts_date(self):
-        with patch.object(bot_telegram, "listar_jogos", new=AsyncMock(return_value=("2026-11-28", []))) as games, \
+        with patch.object(bot_telegram, "listar_jogos", new=AsyncMock(return_value={"sport":"NBA","season":"2026-27","events":[]})) as games, \
              patch.object(bot_telegram, "formatar_jogos", return_value="NBA schedule"), \
              patch.object(bot_telegram, "enviar_mensagem", new=AsyncMock()) as send:
             await bot_telegram.processar_comando("/jogosnba 2026-11-28")
         games.assert_awaited_once_with("NBA", "2026-11-28")
         send.assert_awaited_once_with("NBA schedule")
 
-    async def test_sportsquota_command_formats_daily_usage(self):
-        with patch.object(bot_telegram, "obter_cotas", new=AsyncMock(return_value={"NBA": {}, "NFL": {}})) as quotas, \
-             patch.object(bot_telegram, "formatar_cotas", return_value="Quota status"), \
+    async def test_sportsquota_command_explains_public_espn_source(self):
+        with patch.object(bot_telegram, "formatar_status_fontes", return_value="ESPN source status"), \
              patch.object(bot_telegram, "enviar_mensagem", new=AsyncMock()) as send:
             await bot_telegram.processar_comando("/sportsquota")
-        quotas.assert_awaited_once()
-        send.assert_awaited_once_with("Quota status")
+        send.assert_awaited_once_with("ESPN source status")
 
-    async def test_help_contains_api_sports_commands(self):
+    async def test_help_contains_nba_nfl_and_tennis_commands(self):
         with patch.object(bot_telegram, "enviar_mensagem", new=AsyncMock()) as send:
             await bot_telegram.processar_comando("/ajuda")
         message = send.await_args.args[0]
-        for command in ("/nba", "/nfl", "/jogosnba", "/jogosnfl", "/sportsquota"):
+        for command in ("/nba", "/nfl", "/jogosnba", "/jogosnfl", "/sportsquota", "/tenis", "/h2h", "/prejogo"):
             self.assertIn(command, message)
 
 
