@@ -775,7 +775,8 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             f"📈 Retorno esperado estimado: ${ev_data['net_profit_usd']:+.2f} "
             f"({ev_data['net_ev_pct']:+.1f}%)\n"
             f"🧭 Condições de preço e liquidez: {qualidade['label']} "
-            f"({qualidade['score']}/{qualidade['max_score']})\n\n"
+            f"({qualidade['score']}/{qualidade['max_score']})\n"
+            f"{tennis_analysis_text}"
             "⚠️ Classificação baseada nas condições atuais de preço e liquidez; "
             "não prevê o resultado nem garante lucro.\n"
             f"🔗 Ver mercado: {link}"
@@ -792,7 +793,8 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
                          "gross_shares": ev_data["gross_shares"],
                          "net_shares": ev_data["net_shares"],
                          "quality_label": qualidade["label"],
-                         "quality_score": qualidade["score"]},
+                         "quality_score": qualidade["score"],
+                         "tennis_analysis_included": bool(tennis_analysis)},
             )
             logger.info("Oportunidade Odds Value enviada: %s", info["name"])
         else:
