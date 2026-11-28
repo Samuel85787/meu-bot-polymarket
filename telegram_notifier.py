@@ -15,27 +15,31 @@ MIN_INTERVAL_SECONDS = 0.25
 
 
 BOT_COMMANDS = [
-    {"command": "start", "description": "Ligar o monitor"},
-    {"command": "stop", "description": "Desligar o monitor"},
-    {"command": "ajuda", "description": "Ver todos os comandos e exemplos"},
-    {"command": "status", "description": "Ver status e saúde do bot"},
+    {"command": "start", "description": "Ligar o monitor de mercados"},
+    {"command": "stop", "description": "Pausar o monitor"},
+    {"command": "ajuda", "description": "Abrir o guia de comandos"},
+    {"command": "status", "description": "Ver saúde e configurações do bot"},
+    {"command": "nba", "description": "Analisar confronto NBA (equipe 1 vs equipe 2)"},
+    {"command": "nfl", "description": "Analisar confronto NFL (equipe 1 vs equipe 2)"},
+    {"command": "jogosnba", "description": "Ver agenda atual ou por data da NBA"},
+    {"command": "jogosnfl", "description": "Ver agenda atual ou por data da NFL"},
+    {"command": "sportsquota", "description": "Ver status das fontes NBA e NFL"},
+    {"command": "tenis", "description": "Consultar perfil de tenista ATP ou WTA"},
+    {"command": "h2h", "description": "Comparar o histórico de dois tenistas"},
+    {"command": "prejogo", "description": "Análise pré-jogo de tênis por superfície"},
     {"command": "resumo", "description": "Resumo dos alertas das últimas 24 horas"},
-    {"command": "metrics", "description": "Ver métricas e resultados simulados"},
+    {"command": "metrics", "description": "Métricas e resultados simulados"},
     {"command": "ranking", "description": "Ranking de desempenho por esporte"},
-    {"command": "creditos", "description": "Saldo da The Odds API"},
-    {"command": "sportsquota", "description": "Saldo diário das APIs NBA e NFL"},
-    {"command": "nba", "description": "Analisar confronto NBA: equipe 1 vs equipe 2"},
-    {"command": "nfl", "description": "Analisar confronto NFL: equipe 1 vs equipe 2"},
-    {"command": "jogosnba", "description": "Agenda NBA: /jogosnba AAAA-MM-DD"},
-    {"command": "jogosnfl", "description": "Agenda NFL: /jogosnfl AAAA-MM-DD"},
-    {"command": "tenis", "description": "Perfil ATP/WTA de um jogador"},
-    {"command": "h2h", "description": "Confronto direto entre tenistas"},
-    {"command": "prejogo", "description": "Análise pré-jogo de tênis"},
-    {"command": "setbet", "description": "Alterar o filtro mínimo de aposta"},
+    {"command": "sport", "description": "Desempenho histórico de um esporte"},
+    {"command": "backtest", "description": "Reproduzir resultados dos alertas registrados"},
+    {"command": "creditos", "description": "Consultar créditos da The Odds API"},
+    {"command": "config", "description": "Ver os filtros atuais de análise"},
+    {"command": "top", "description": "Ver os cinco maiores EV registrados"},
+    {"command": "worst", "description": "Ver os cinco menores EV registrados"},
+    {"command": "setbet", "description": "Alterar o valor mínimo de aposta"},
     {"command": "setspike", "description": "Alterar o filtro de oscilação"},
-    {"command": "setwhale", "description": "Ligar ou desligar alertas de baleias"},
+    {"command": "setwhale", "description": "Ativar ou pausar alertas de baleias"},
 ]
-
 
 async def registrar_comandos_telegram():
     """Publica a lista de comandos no menu nativo do Telegram."""
