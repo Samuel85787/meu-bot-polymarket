@@ -10,6 +10,7 @@ from odds_checker import (
     teams_match,
     _infer_yes_side,
     _sport_for_key,
+    selecionar_feeds_para_ciclo,
 )
 
 
@@ -204,6 +205,54 @@ class OddsMatchingTests(unittest.TestCase):
         ])
         self.assertAlmostEqual(fair["a"]["fair_prob"], 0.5)
         self.assertAlmostEqual(fair["b"]["fair_prob"], 0.5)
+
+
+class OddsQuotaTests(unittest.TestCase):
+    def tearDown(self):
+        odds_checker._quota_used = None
+        odds_checker._quota_remaining = None
+        odds_checker._quota_last = None
+        odds_checker._quota_checked_at = None
+        odds_checker._sport_rotation.clear()
+
+    def test_quota_status_uses_headers_and_preserves_reserve(self):
+        with patch.object(odds_checker.config, "ODDS_API_CREDITS_RESERVE", 50):
+            odds_checker.atualizar_quota({
+                "x-requests-used": "450",
+                "x-requests-remaining": "50",
+                "x-requests-last": "1",
+            })
+            status = odds_checker.get_quota_status()
+        self.assertEqual(status["used"], 450)
+        self.assertEqual(status["remaining"], 50)
+        self.assertEqual(status["total"], 500)
+        self.assertTrue(status["paused"])
+
+    def test_quota_allows_queries_above_reserve(self):
+        with patch.object(odds_checker.config, "ODDS_API_CREDITS_RESERVE", 50):
+            odds_checker.atualizar_quota({
+                "x-requests-used": "400",
+                "x-requests-remaining": "100",
+            })
+            status = odds_checker.get_quota_status()
+        self.assertFalse(status["paused"])
+
+    def test_feed_selection_rotates_extra_tennis_feeds(self):
+        feeds = [
+            ("basketball_nba", "NBA"),
+            ("tennis_atp_a", "Tênis ATP"),
+            ("tennis_atp_b", "Tênis ATP"),
+            ("americanfootball_nfl", "NFL"),
+        ]
+        first = selecionar_feeds_para_ciclo(feeds, 6)
+        second = selecionar_feeds_para_ciclo(feeds, 6)
+        first_atp = [key for key, sport in first if sport == "Tênis ATP"]
+        second_atp = [key for key, sport in second if sport == "Tênis ATP"]
+        self.assertEqual(first_atp, ["tennis_atp_a"])
+        self.assertEqual(second_atp, ["tennis_atp_b"])
+        self.assertEqual(len(first), 3)
+
+
 
 
 if __name__ == "__main__":
