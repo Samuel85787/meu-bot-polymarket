@@ -123,9 +123,9 @@ async def processar_comando(texto):
         if not monitor_ativo or task_monitor is None or task_monitor.done():
             monitor_ativo = True
             task_monitor = asyncio.create_task(iniciar_monitor())
-            await enviar_mensagem("Monitor Ligado!")
+            await enviar_mensagem("✅ MONITOR ATIVADO\nEstou acompanhando os mercados com os filtros atuais.\nUse /status para conferir a saúde do bot.")
         else:
-            await enviar_mensagem("Monitor ja esta rodando")
+            await enviar_mensagem("🟢 O monitor já está ativo.\nUse /status para ver o estado dos serviços.")
 
     elif texto in ["/stop", "/parar"]:
         if monitor_ativo or (task_monitor is not None and not task_monitor.done()):
@@ -136,9 +136,9 @@ async def processar_comando(texto):
                     await task_monitor
                 except asyncio.CancelledError:
                     pass
-            await enviar_mensagem("Monitor Desligado")
+            await enviar_mensagem("⏸️ MONITOR PAUSADO\nAs consultas de mercado foram interrompidas. Seu histórico e suas configurações foram preservados.")
         else:
-            await enviar_mensagem("Monitor ja esta desligado")
+            await enviar_mensagem("⏸️ O monitor já está pausado.\nUse /start para retomar o acompanhamento.")
 
     elif texto in ["/metrics", "/metricas", "/historico", "/performance"]:
         metricas = get_metrics()
@@ -544,9 +544,9 @@ async def processar_comando(texto):
                 raise ValueError()
             config.MIN_BET_AMOUNT = valor
             salvar_configuracoes()
-            await enviar_mensagem(f"Filtro atualizado para ${valor}")
+            await enviar_mensagem(f"✅ FILTRO ATUALIZADO\nValor mínimo por alerta: ${valor:.2f}\nUse /config para revisar os demais filtros.")
         except Exception:
-            await enviar_mensagem("Use: /setbet 5000")
+            await enviar_mensagem("Como usar: /setbet 100\nInforme o valor mínimo em USD. Exemplo: /setbet 100")
 
     elif texto.startswith("/setspike"):
         try:
@@ -558,15 +558,15 @@ async def processar_comando(texto):
             salvar_configuracoes()
             if monitor_instance and hasattr(monitor_instance, "tracker"):
                 monitor_instance.tracker.threshold = valor
-            await enviar_mensagem(f"Oscilacao atualizada para {round(valor * 100, 2)}%")
+            await enviar_mensagem(f"✅ FILTRO DE OSCILAÇÃO ATUALIZADO\nVariação mínima: {valor * 100:.2f}%\nExemplos: /setspike 0.15 ou /setspike 15")
         except Exception:
-            await enviar_mensagem("Use: /setspike 0.15 ou /setspike 15")
+            await enviar_mensagem("Como usar: /setspike 0.15 ou /setspike 15\nVocê pode informar a fração (0.15) ou a porcentagem (15).")
 
     elif texto == "/setwhale":
         config.ENABLE_WHALE_ALERTS = not config.ENABLE_WHALE_ALERTS
         salvar_configuracoes()
-        estado = "LIGADOS" if config.ENABLE_WHALE_ALERTS else "DESLIGADOS"
-        await enviar_mensagem(f"Alertas de baleia: {estado}")
+        estado = "ATIVADOS" if config.ENABLE_WHALE_ALERTS else "PAUSADOS"
+        await enviar_mensagem(f"🐋 ALERTAS DE GRANDES ORDENS {estado}\nUse /setwhale novamente para alternar.")
 
     else:
         await enviar_mensagem("Comando não reconhecido.\nDigite /ajuda para ver os comandos disponíveis.")
@@ -589,7 +589,7 @@ async def iniciar_monitor():
     except Exception as e:
         set_service("monitor", "error", type(e).__name__)
         logger.error("Erro monitor: %s", e)
-        await enviar_mensagem(f"Erro no monitor: {e}")
+        await enviar_mensagem("⚠️ O monitor encontrou uma falha e foi interrompido.\nUse /status para conferir os serviços. O detalhe técnico foi registrado no log.")
     finally:
         monitor_ativo = False
 
@@ -686,9 +686,9 @@ async def main():
     if config.AUTO_START:
         monitor_ativo = True
         task_monitor = asyncio.create_task(iniciar_monitor())
-        await enviar_mensagem("Bot iniciado com AUTO_START")
+        await enviar_mensagem("🤖 BOT ONLINE\nO monitor iniciou automaticamente.\nUse /status para conferir os serviços ou /ajuda para ver os comandos.")
     else:
-        await enviar_mensagem("Bot iniciado. Mande /start")
+        await enviar_mensagem("🤖 BOT ONLINE\nO monitor está pausado. Envie /start para começar a acompanhar os mercados.\nUse /ajuda para conhecer os comandos.")
 
     try:
         await asyncio.gather(*background_tasks)
