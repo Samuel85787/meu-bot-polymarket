@@ -15,7 +15,7 @@ from telegram_notifier import fechar_notificador, iniciar_notificador, send_aler
 from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest, get_period_metrics, get_sport_ranking)
 from health_status import set_service, format_status
 from tennis_api import (AcesAPIError, buscar_perfil, buscar_confronto, analisar_matchup, formatar_perfil, formatar_confronto, formatar_analise_matchup, formatar_ambiguidades_h2h)
-from api_sports import (SportsAPIError, analisar_confronto, formatar_analise as formatar_analise_sports, listar_jogos, formatar_jogos, obter_cotas, formatar_cotas)
+from espn_sports import (SportsDataError, analisar_confronto, formatar_analise as formatar_analise_sports, listar_jogos, formatar_jogos, formatar_status_fontes)
 
 logger = logging.getLogger(__name__)
 
@@ -364,17 +364,16 @@ async def processar_comando(texto):
                     await enviar_mensagem(f"Consulta AcesAPI: {exc}")
 
     elif texto in ["/sportsquota", "/sportsquotas", "/quotasports"]:
-        cotas = await obter_cotas()
-        await enviar_mensagem(formatar_cotas(cotas))
+        await enviar_mensagem(formatar_status_fontes())
 
     elif texto.startswith("/jogosnba") or texto.startswith("/jogosnfl"):
         sport = "NBA" if texto.startswith("/jogosnba") else "NFL"
         partes = texto.split()
         data = partes[1] if len(partes) > 1 else None
         try:
-            data_consulta, jogos = await listar_jogos(sport, data)
-            await enviar_mensagem(formatar_jogos(sport, data_consulta, jogos))
-        except SportsAPIError as exc:
+            agenda = await listar_jogos(sport, data)
+            await enviar_mensagem(formatar_jogos(agenda))
+        except SportsDataError as exc:
             await enviar_mensagem(f"API-SPORTS: {exc}")
 
     elif texto.startswith("/nba") or texto.startswith("/nfl"):
