@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, patch
 import odds_checker
 from odds_checker import (
     calcular_probabilidades_sem_vig,
+    converter_odd_para_decimal,
+    formatar_odd_decimal,
     check_outcomes,
     find_pm_price,
     normalize_team_name,
@@ -14,6 +16,30 @@ from odds_checker import (
     detectar_superficie_tenis,
     selecionar_feeds_para_ciclo,
 )
+
+
+class DecimalOddsFormatTests(unittest.TestCase):
+    def test_decimal_odds_keep_decimal_value_and_two_places(self):
+        self.assertEqual(formatar_odd_decimal(1.5), "1.50")
+        self.assertEqual(formatar_odd_decimal(2.15), "2.15")
+        self.assertEqual(formatar_odd_decimal(3), "3.00")
+
+    def test_american_odds_are_converted_to_decimal(self):
+        self.assertEqual(formatar_odd_decimal(150, "american"), "2.50")
+        self.assertEqual(formatar_odd_decimal(-200, "american"), "1.50")
+
+    def test_fractional_odds_are_converted_to_decimal(self):
+        self.assertEqual(formatar_odd_decimal("1/2", "fractional"), "1.50")
+        self.assertEqual(formatar_odd_decimal("5/4", "fractional"), "2.25")
+
+    def test_invalid_odds_are_rejected(self):
+        for value in (0, 1, -2, float("nan")):
+            with self.assertRaises(ValueError):
+                converter_odd_para_decimal(value)
+        with self.assertRaises(ValueError):
+            converter_odd_para_decimal(0, "american")
+        with self.assertRaises(ValueError):
+            converter_odd_para_decimal("1/0", "fractional")
 
 
 class OddsCooldownTests(unittest.IsolatedAsyncioTestCase):
