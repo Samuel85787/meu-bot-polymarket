@@ -29,33 +29,64 @@ def format_age(seconds):
     if seconds < 60:
         return f"{seconds}s"
     if seconds < 3600:
-        return f"{seconds // 60}min"
-    return f"{seconds // 3600}h {(seconds % 3600) // 60}min"
+        return f"{seconds // 60}m"
+    return f"{seconds // 3600}h {(seconds % 3600) // 60}m"
 
 
-def format_status():
+def _service_line(services, key, label, missing_text=None):
+    item = services.get(key)
+    if not item:
+        return f"🟡 {label}: {missing_text or 'aguardando primeira resposta'}"
+
+    state = item["state"]
+    detail = (item.get("detail") or "").strip()
+    age = format_age(item.get("age_seconds", 0))
+
+    if state == "ok":
+        suffix = f" · {detail}" if detail else ""
+        return f"🟢 {label}: OK{suffix} · {age}"
+    if state == "error":
+        suffix = f" · {detail}" if detail else ""
+        return f"🔴 {label}: falha{suffix}"
+    if state == "warning":
+        suffix = f" · {detail}" if detail else ""
+        return f"🟡 {label}: atenção{suffix}"
+    if state == "checking":
+        suffix = f" · {detail}" if detail else ""
+        return f"🔄 {label}: verificando{suffix}"
+    return f"⚪ {label}: {state}"
+
+
+def format_status(monitor_active=True):
+    """Compact, user-oriented health panel for the Telegram chat."""
     services = get_services()
-    if not services:
-        return "Diagnóstico ainda inicializando."
-    labels = {
-        "monitor": "Monitor de mercados",
-        "telegram_listener": "Telegram (comandos)",
-        "telegram_sender": "Telegram (envio)",
-        "clob_ws": "Polymarket CLOB",
-        "sports_ws": "Feed de placares",
-        "gamma_api": "Gamma API (mercados)",
-        "odds_api": "Odds API",
-        "alert_history": "Histórico",
-    }
     lines = []
-    for key, label in labels.items():
-        item = services.get(key)
-        if not item:
-            lines.append(f"{label}: ⚪ Sem dados")
-            continue
-        state = item["state"]
-        icon = "🟢" if state == "ok" else "🔴" if state == "error" else "🟡"
-        detail = f" — {item['detail']}" if item["detail"] else ""
-        age = format_age(item["age_seconds"])
-        lines.append(f"{icon} {label}: {state.upper()} ({age}){detail}")
+
+    # Telegram is independent from the market monitor.
+    listener = services.get("telegram_listener")
+    sender = services.get("telegram_sender")
+    if listener and listener.get("state") == "ok" and sender and sender.get("state") == "ok":
+        lines.append("🟢 Telegram: comandos e envios OK")
+    elif listener and listener.get("state") == "error":
+        lines.append(f"🔴 Telegram: falha nos comandos · {listener.get('detail') or 'ver logs'}")
+    elif sender and sender.get("state") == "error":
+        lines.append(f"🔴 Telegram: falha no envio · {sender.get('detail') or 'ver logs'}")
+    else:
+        lines.append(_service_line(services, "telegram_listener", "Telegram", "inicializando"))
+
+    lines.append(_service_line(services, "sports_ws", "Feed de placares", "aguardando conexão"))
+
+    if monitor_active:
+        lines.append(_service_line(services, "clob_ws", "Polymarket CLOB", "conectando"))
+        lines.append(_service_line(services, "gamma_api", "Mercados Gamma", "aguardando consulta"))
+    else:
+        lines.append("⏸️ Polymarket CLOB e Gamma: pausados com o monitor")
+
+    odds = services.get("odds_api")
+    if odds:
+        lines.append(_service_line(services, "odds_api", "Odds API"))
+    else:
+        lines.append("🟡 Odds API: aguardando primeira consulta")
+
+    lines.append(_service_line(services, "alert_history", "Histórico", "aguardando ciclo"))
     return "\n".join(lines)
