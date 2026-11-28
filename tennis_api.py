@@ -263,4 +263,4 @@ def formatar_confronto(resultado):
                 f"({jogo.get('surface') or 'piso —'}): {jogo.get('score') or 'placar —'}"
             )
     linhas.append("H2H é contexto histórico, não previsão isolada do próximo jogo.")
-    return "\\n".join(linhas)
+    return "\n".join(linhas)
