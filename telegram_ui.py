@@ -48,9 +48,9 @@ def _format_line(line, first=False):
         return f"<code>{esc(SEPARATOR)}</code>"
 
     stripped = line.strip()
-    if first:
+    if first and not _URL_RE.search(line):
         return f"<b>{esc(stripped)}</b>"
-    if _is_heading(stripped):
+    if _is_heading(stripped) and not _URL_RE.search(line):
         return f"\n<b>{esc(stripped)}</b>"
 
     # Keep any visible URL usable, but never trust raw HTML from external data.
