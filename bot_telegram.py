@@ -149,9 +149,10 @@ async def processar_comando(texto):
             f"Alertas registrados: {metricas['total']}",
             f"Resultados pendentes: {metricas['pending']}",
             f"Mercados resolvidos: {metricas['settled']}",
-            f"Acertos: {metricas['wins']} | Erros: {metricas['losses']}",
+            f"Acertos: {metricas['wins']} | Erros: {metricas['losses']} | Empates: {metricas['draws']}",
             f"Taxa geral (tipos de alerta misturados): {taxa}",
             f"Taxa de acerto Odds Value: {metricas['odds_win_rate']:.1f}%" if metricas["odds_win_rate"] is not None else "Taxa de acerto Odds Value: sem amostra",
+            f"Liquidações 50/50 (Odds Value): {metricas['odds_draws']}",
             f"EV médio no alerta: {ev_medio}",
             "",
             "RENTABILIDADE SIMULADA (somente Odds Value)",
@@ -183,7 +184,7 @@ async def processar_comando(texto):
                 taxa_txt = f"{taxa_esporte:.1f}%" if taxa_esporte is not None else "sem resultado"
                 linhas.append(f"{item['sport']}: {item['total']} alertas, acerto {taxa_txt}")
         for item in metricas["by_type"]:
-            linha = f"{item['alert_type']}: {item['total']} alertas, {item['wins'] or 0} acertos, {item['losses'] or 0} erros"
+            linha = f"{item['alert_type']}: {item['total']} alertas, {item['wins'] or 0} acertos, {item['losses'] or 0} erros, {item['draws'] or 0} empates"
             if item["pnl_samples"]:
                 linha += f", P&L simulado ${item['pnl_usd']:+.2f}, ROI médio {item['avg_roi_pct']:+.2f}%"
             linhas.append(linha)
@@ -200,7 +201,7 @@ async def processar_comando(texto):
                 "BACKTEST — REPLAY DE ALERTAS",
                 f"Stake hipotética por sinal: ${stake_teste:.2f}",
                 f"Amostras: {resultado['samples']}",
-                f"Vitórias/derrotas: {resultado['wins']}/{resultado['losses']}",
+                f"Vitórias/derrotas/empates: {resultado['wins']}/{resultado['losses']}/{resultado['draws']}",
                 f"Taxa de acerto: {resultado['win_rate']:.1f}%" if resultado["win_rate"] is not None else "Taxa de acerto: sem amostra",
                 f"P&L simulado: ${resultado['total_pnl_usd']:+.2f}" if resultado["total_pnl_usd"] is not None else "P&L simulado: sem amostra",
                 f"ROI médio: {resultado['avg_roi_pct']:+.2f}%" if resultado["avg_roi_pct"] is not None else "ROI médio: —",
@@ -225,7 +226,8 @@ async def processar_comando(texto):
             linhas = [
                 f"Desempenho — {esporte}",
                 f"Alertas: {dados['total']}",
-                f"Resolvidos: {resolvidos}",
+                f"Resolvidos: {resolvidos + (dados['draws'] or 0)}",
+                f"Empates/liquidações parciais: {dados['draws'] or 0}",
                 f"Taxa de acerto: {taxa_esporte:.1f}%" if taxa_esporte is not None else "Taxa de acerto: sem amostra",
                 f"EV médio: {dados['avg_ev']:+.2f}%" if dados["avg_ev"] is not None else "EV médio: —",
                 f"P&L simulado: ${dados['pnl_usd']:+.2f}" if dados["pnl_usd"] is not None else "P&L simulado: sem amostra",
@@ -298,7 +300,7 @@ async def processar_comando(texto):
                     taxa = item["win_rate"]
                     linhas.append(
                         f'{indice}. {item["sport"]} — ROI médio {roi:+.1f}% | '
-                        f'P&L hipotético ${pnl:+.2f} | acerto {taxa:.1f}% | {item["samples"]} resultados'
+                        f'P&L hipotético ${pnl:+.2f} | acerto {taxa:.1f}% | {item["samples"]} resultados | {item["draws"]} empates'
                     )
             linhas.extend(["", "O ranking é retrospectivo e simulado; não representa lucro real nem garante resultados futuros."])
             await enviar_mensagem("\n".join(linhas))
