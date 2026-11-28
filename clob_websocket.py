@@ -146,13 +146,15 @@ class PolymarketMonitor:
         depth_age = time.monotonic() - book.get("depth_updated_at", 0)
         if depth_age <= 120:
             depth_text = (
-                f"Profundidade (snapshot {depth_age:.0f}s): "
-                f"compra {book['bid_depth_5']:.0f} / venda {book['ask_depth_5']:.0f} tokens"
+                f"Profundidade: compra {book['bid_depth_5']:.0f}  •  "
+                f"venda {book['ask_depth_5']:.0f} tokens  •  snapshot {depth_age:.0f}s"
             )
         else:
-            depth_text = "Profundidade: snapshot antigo, indisponível"
+            depth_text = "Profundidade: indisponível (snapshot desatualizado)"
         return (
-            f"Bid/Ask: {bid} / {ask} | Spread: {spread}\n"
+            f"Melhor compra (bid): {bid}\n"
+            f"Melhor venda (ask): {ask}\n"
+            f"Spread: {spread}\n"
             f"{depth_text}"
         )
 
