@@ -18,6 +18,7 @@ from market_context import formatar_contexto_mercado
 from alert_history import record_alert
 from signal_quality import classificar_fluxo
 from health_status import set_service
+from telegram_ui import multiplicador_bruto_contrato
 
 logger = logging.getLogger(__name__)
 
@@ -140,23 +141,20 @@ class PolymarketMonitor:
         book = self.order_books.get(str(token_id))
         if not book or time.monotonic() - book["updated_at"] > 120:
             return None
-        bid = f"{book['best_bid']:.4f}" if book["best_bid"] is not None else "—"
-        ask = f"{book['best_ask']:.4f}" if book["best_ask"] is not None else "—"
-        spread = f"{book['spread']:.4f}" if book["spread"] is not None else "—"
+
+        bid = f"{book['best_bid']:.3f}" if book["best_bid"] is not None else "—"
+        ask = f"{book['best_ask']:.3f}" if book["best_ask"] is not None else "—"
+        spread = f"{book['spread']:.3f}" if book["spread"] is not None else "—"
         depth_age = time.monotonic() - book.get("depth_updated_at", 0)
+        texto = f"Bid {bid}  ·  Ask {ask}  ·  Spread {spread}"
         if depth_age <= 120:
-            depth_text = (
-                f"Profundidade: compra {book['bid_depth_5']:.0f}  •  "
-                f"venda {book['ask_depth_5']:.0f} tokens  •  snapshot {depth_age:.0f}s"
+            texto += (
+                f"\nProfundidade: {book['bid_depth_5']:.0f} compra / "
+                f"{book['ask_depth_5']:.0f} venda tokens"
             )
         else:
-            depth_text = "Profundidade: indisponível (snapshot desatualizado)"
-        return (
-            f"Melhor compra (bid): {bid}\n"
-            f"Melhor venda (ask): {ask}\n"
-            f"Spread: {spread}\n"
-            f"{depth_text}"
-        )
+            texto += "\nProfundidade: snapshot indisponível"
+        return texto
 
     async def refresh_markets_loop(self):
         while True:
@@ -356,32 +354,42 @@ class PolymarketMonitor:
     ):
         try:
             link = self.gerar_link(market)
-            volume_total = self.parse_float(market.get("volume", 0))
             liquidez = self.parse_float(market.get("liquidity", 0))
-            question = market.get("question", "Mercado desconhecido")
-            esporte = market.get("_sport") or market.get("sport") or "Esporte não identificado"
-            placar = self.formatar_placar(obter_placar_mercado(market))
-            msg_text = (
-                "📈 MOVIMENTAÇÃO DE PREÇO\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                f"🏟️ {self.titulo_evento_curto(market)}\n"
-                f"🏆 {esporte}\n\n"
-                "📌 MERCADO\n"
-                f"Seleção: {outcome_name}\n"
-                f"Preço anterior: {old_price:.3f}\n"
-                f"Preço atual: {new_price:.3f}\n"
-                f"Variação: {pct * 100:+.1f}%\n"
-                f"Direção: {'Alta' if event_type == 'SPIKE_UP' else 'Queda'}\n\n"
-                "💧 LIQUIDEZ\n"
-                f"Liquidez disponível: ${liquidez:,.0f}\n"
-                + (f"Placar: {placar}\n" if placar else "")
-                + "\nA oscilação é um alerta de movimentação, não uma recomendação de entrada."
+            esporte = market.get("_sport") or market.get("sport") or "Esporte"
+            placar_raw = obter_placar_mercado(market)
+            placar = self.formatar_placar(placar_raw)
+            direcao = "▲ SUBIU" if event_type == "SPIKE_UP" else "▼ CAIU"
+            retorno_anterior = multiplicador_bruto_contrato(old_price)
+            retorno_atual = multiplicador_bruto_contrato(new_price)
+
+            linhas = [
+                f"📈 PREÇO EM MOVIMENTO  ·  {direcao}",
+                "━━━━━━━━━━━━━━━━━━━━",
+                f"{self.titulo_evento_curto(market)}  ·  {esporte}",
+                f"🎯 {outcome_name}",
+                f"{old_price:.3f}  →  {new_price:.3f}  ({pct * 100:+.1f}%)",
+            ]
+            if retorno_anterior and retorno_atual:
+                linhas.append(
+                    f"Retorno bruto se vencer: {retorno_anterior}  →  {retorno_atual}"
+                )
+            linhas.append(f"💧 Liquidez do mercado: \${liquidez:,.0f}")
+            if placar:
+                linhas.append(f"🏟️ {placar}")
+            linhas.extend([
+                "",
+                "Preço do contrato Polymarket; retorno bruto antes de taxas. "
+                "Movimentação não é recomendação de entrada.",
+            ])
+            enviado = await send_alert(
+                "\n".join(linhas), button_url=link, button_label="Ver mercado ↗"
             )
-            enviado = await send_alert(msg_text, button_url=link)
             if enviado:
-                record_alert("price_spike", event_type, market, token_id=token_id,
-                             outcome=outcome_name, entry_price=new_price,
-                             details={"previous_price": old_price, "change_pct": pct * 100})
+                record_alert(
+                    "price_spike", event_type, market, token_id=token_id,
+                    outcome=outcome_name, entry_price=new_price,
+                    details={"previous_price": old_price, "change_pct": pct * 100},
+                )
         except Exception as e:
             logger.error("Erro alerta oscilacao: %s", e)
 
@@ -459,35 +467,50 @@ class PolymarketMonitor:
         fluxo=None, book=None, token_id=None,
     ):
         try:
-            volume_total = self.parse_float(market.get("volume", 0))
             liquidez = self.parse_float(market.get("liquidity", 0))
             side_texto = self.side_label(side_raw)
             link = self.gerar_link(market)
-            question = market.get("question", "Mercado desconhecido")
-
+            esporte = market.get("_sport") or market.get("sport") or "Esporte"
             titulo = "GRANDE MOVIMENTAÇÃO" if usd_value >= config.MEGA_BET_AMOUNT else "ORDEM DE GRANDE VOLUME"
-            esporte = market.get("_sport") or market.get("sport") or "Esporte não identificado"
-            msg_text = (
-                f"🐋 {titulo}\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                f"🏟️ {self.titulo_evento_curto(market)}\n"
-                f"🏆 {esporte}\n\n"
-                "📌 OPERAÇÃO OBSERVADA\n"
-                f"Seleção: {outcome_name}\n"
-                f"Lado: {side_texto}\n"
-                f"Valor estimado: ${usd_value:,.2f}\n"
-                f"Preço no momento: {price:.3f}\n\n"
-                "🔎 POR QUE CHAMOU ATENÇÃO\n"
-                f"{motivo}\n"
-                + (f"Placar: {placar}\n" if placar else "")
-                + (f"\n📊 FLUXO — ÚLTIMOS 30 MIN\n{fluxo}\n" if fluxo else "")
-                + (f"\n📚 LIVRO DE OFERTAS\n{book}\n" if book else "")
-                + "\nMovimentação observada no mercado. Não comprova informação privilegiada ou resultado futuro."
+            retorno = multiplicador_bruto_contrato(price)
+
+            linhas = [
+                f"🐋 {titulo}",
+                "━━━━━━━━━━━━━━━━━━━━",
+                f"{self.titulo_evento_curto(market)}  ·  {esporte}",
+                f"{'🟢' if side_raw == 'BUY' else '🔴'} {side_texto}  ·  {outcome_name}",
+                f"💵 Ordem estimada: \${usd_value:,.0f}",
+                f"Preço do contrato: {price:.3f}"
+                + (f"  ·  retorno bruto {retorno}" if retorno else ""),
+            ]
+            if liquidez > 0:
+                impacto = usd_value / liquidez * 100
+                linhas.append(f"💧 Liquidez: \${liquidez:,.0f}  ·  impacto estimado {impacto:.1f}%")
+            if fluxo:
+                linhas.extend(["", "📊 FLUXO  ·  30 MIN", fluxo])
+            if book:
+                book_linhas = [item.strip() for item in str(book).splitlines() if item.strip()]
+                if book_linhas:
+                    linhas.extend(["", "📚 LIVRO DE OFERTAS", *book_linhas])
+            if placar:
+                linhas.append(f"🏟️ {placar}")
+            if motivo:
+                linhas.extend(["", f"ⓘ {motivo}"])
+            linhas.extend([
+                "",
+                "Preço do contrato Polymarket; retorno bruto antes de taxas. "
+                "Ordem grande não comprova informação privilegiada ou resultado futuro.",
+            ])
+
+            enviado = await send_alert(
+                "\n".join(linhas), button_url=link, button_label="Ver mercado ↗"
             )
-            enviado = await send_alert(msg_text, button_url=link)
             if enviado:
-                record_alert("whale", side_raw, market, token_id=token_id,
-                             outcome=outcome_name, entry_price=price, stake_usd=usd_value,
-                             details={"reason": motivo, "flow": fluxo})
+                record_alert(
+                    "whale", side_raw, market, token_id=token_id,
+                    outcome=outcome_name, entry_price=price, stake_usd=usd_value,
+                    details={"reason": motivo, "flow": fluxo},
+                )
         except Exception as e:
             logger.error("Erro alerta baleia: %s", e)
+
