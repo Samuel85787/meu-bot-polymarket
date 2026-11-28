@@ -205,7 +205,7 @@ def get_metrics():
     return {
         "total": total, "pending": pending, "settled": settled,
         "wins": wins, "losses": losses,
-        "win_rate": (wins / settled * 100) if settled else None,
+        "win_rate": (wins / (wins + losses) * 100) if (wins + losses) else None,
         "odds_settled": odds_counts["decisive"] or 0,
         "odds_draws": odds_counts["draws"] or 0,
         "odds_wins": odds_counts["wins"] or 0,
