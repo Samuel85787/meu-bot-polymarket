@@ -1,7 +1,7 @@
 import html
 import unittest
 
-from telegram_ui import keyboard_url, render_chunks, render_message, split_message
+from telegram_ui import keyboard_url, multiplicador_bruto_contrato, render_chunks, render_message, split_message
 
 
 class TelegramUiTests(unittest.TestCase):
@@ -25,6 +25,13 @@ class TelegramUiTests(unittest.TestCase):
     def test_plain_url_becomes_safe_html_link(self):
         rendered = render_message("Abrir mercado: https://polymarket.com/event/test")
         self.assertIn('<a href="https://polymarket.com/event/test">Abrir link ↗</a>', rendered)
+
+    def test_polymarket_contract_gross_return_is_distinct_from_bookmaker_odds(self):
+        self.assertEqual(multiplicador_bruto_contrato(0.160), "6.25x")
+        self.assertEqual(multiplicador_bruto_contrato(0.840), "1.19x")
+        self.assertEqual(multiplicador_bruto_contrato(0.500), "2.00x")
+        self.assertIsNone(multiplicador_bruto_contrato(0))
+        self.assertIsNone(multiplicador_bruto_contrato(1.2))
 
     def test_keyboard_rejects_non_http_urls(self):
         self.assertIsNone(keyboard_url("javascript:alert(1)"))
