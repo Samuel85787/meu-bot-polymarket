@@ -9,7 +9,7 @@ import os
 import re
 import time
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -100,7 +100,23 @@ async def _request(sport, endpoint, params=None, ttl=CACHE_SECONDS, free_status=
         _cache.pop(key, None)
 
     quota = _quota[sport]
-    if not free_status and quota["remaining"] is not None:
+    if not free_status and quota["remaining"] is None:
+        # /status is free, so check the daily balance before spending credits.
+        status_body = await _request(sport, "status", ttl=300, free_status=True)
+        data = status_body.get("response") or {}
+        requests = data.get("requests") or {}
+        limit, used = requests.get("limit_day"), requests.get("current")
+        if limit is not None and used is not None:
+            quota.update({
+                "limit": int(limit), "used": int(used),
+                "remaining": max(0, int(limit) - int(used)),
+                "updated_at": time.time(),
+            })
+    if not free_status:
+        if quota["remaining"] is None:
+            raise SportsAPIError(
+                f"Saldo diário de {sport} não pôde ser confirmado; consulta bloqueada por segurança."
+            )
         if quota["remaining"] <= RESERVE_REQUESTS:
             raise SportsAPIError(
                 f"Consulta {sport} pausada para preservar a reserva "
@@ -153,20 +169,16 @@ async def _request(sport, endpoint, params=None, ttl=CACHE_SECONDS, free_status=
 
 
 async def obter_cotas():
-    """O endpoint /status não consome requisições diárias, segundo a documentação."""
+    """Consulta o saldo diário dos produtos NBA e NFL sem gastar franquia."""
     resultados = {}
     for sport in ("NBA", "NFL"):
         try:
             body = await _request(sport, "status", ttl=300, free_status=True)
-            data = _response_object(body)
+            data = body.get("response") or {}
             requests = data.get("requests") or {}
-            account = data.get("account") or {}
             subscription = data.get("subscription") or {}
-            limit = requests.get("limit_day")
-            used = requests.get("current")
-            remaining = None
-            if limit is not None and used is not None:
-                remaining = max(0, int(limit) - int(used))
+            limit, used = requests.get("limit_day"), requests.get("current")
+            remaining = max(0, int(limit) - int(used)) if limit is not None and used is not None else None
             _quota[sport].update({
                 "limit": int(limit) if limit is not None else _quota[sport]["limit"],
                 "used": int(used) if used is not None else _quota[sport]["used"],
@@ -177,12 +189,10 @@ async def obter_cotas():
                 **_quota[sport],
                 "plan": subscription.get("plan"),
                 "active": subscription.get("active"),
-                "account": account.get("email"),
             }
         except SportsAPIError as exc:
             resultados[sport] = {**_quota[sport], "error": str(exc)}
     return resultados
-
 
 def formatar_cotas(cotas):
     linhas = ["API-SPORTS — CONSUMO DIÁRIO"]
@@ -521,7 +531,6 @@ async def listar_jogos(sport, date=None):
     if sport == "NBA":
         params = {
             "date": date, "league": NBA_LEAGUE, "season": NBA_SEASON,
-            "timezone": TIMEZONE,
         }
     else:
         league = await _nfl_league()
@@ -533,8 +542,22 @@ async def listar_jogos(sport, date=None):
     return date, _response_list(body)
 
 
+def _hora_local(valor):
+    if isinstance(valor, dict):
+        valor = valor.get("start") or valor.get("date")
+    if not valor:
+        return "horário —"
+    try:
+        momento = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+        if momento.tzinfo is None:
+            momento = momento.replace(tzinfo=timezone.utc)
+        return momento.astimezone(ZoneInfo(TIMEZONE)).strftime("%H:%M (Recife)")
+    except (TypeError, ValueError):
+        return str(valor)
+
+
 def formatar_jogos(sport, date, games):
-    linhas = [f"🏟️ {sport} — jogos de {date}"]
+    linhas = [f"🏟️ {sport} — jogos de {date} (horário de Recife)"]
     if not games:
         linhas.append("A API não retornou partidas para esta data.")
         return "\n".join(linhas)
@@ -553,9 +576,7 @@ def formatar_jogos(sport, date, games):
             placar = f"{int(home_score)}–{int(away_score)}"
         else:
             placar = "vs"
-        hora = _game_date(game)
-        if "T" in hora:
-            hora = hora[11:16] + " UTC"
+        hora = _hora_local(game.get("date") or game.get("game_date"))
         linhas.append(
             f"• {hora} | {away_name} {placar} {home_name} | {situacao}"
             + (f" ({clock})" if clock else "")
