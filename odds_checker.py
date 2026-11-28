@@ -33,6 +33,41 @@ _quota_last = None
 _quota_checked_at = None
 
 
+
+def converter_odd_para_decimal(valor, formato_origem="decimal"):
+    """Converte decimal, americano ou fracionário para odd decimal."""
+    formato = str(formato_origem or "decimal").strip().lower()
+    if formato == "fractional":
+        partes = str(valor).strip().split("/", 1)
+        if len(partes) != 2:
+            raise ValueError("Odd fracionária inválida.")
+        numerador, denominador = float(partes[0]), float(partes[1])
+        if denominador <= 0 or numerador < 0:
+            raise ValueError("Odd fracionária inválida.")
+        decimal = 1.0 + numerador / denominador
+    else:
+        numero = float(valor)
+        if not math.isfinite(numero):
+            raise ValueError("Odd inválida.")
+        if formato == "american":
+            if numero == 0:
+                raise ValueError("Odd americana não pode ser zero.")
+            decimal = 1.0 + (numero / 100.0 if numero > 0 else 100.0 / abs(numero))
+        elif formato == "decimal":
+            decimal = numero
+        else:
+            raise ValueError("Formato de odd não suportado.")
+
+    if not math.isfinite(decimal) or decimal <= 1.0:
+        raise ValueError("Odd decimal precisa ser maior que 1.00.")
+    return decimal
+
+
+def formatar_odd_decimal(valor, formato_origem="decimal"):
+    """Exibe odds decimais sempre com duas casas, ex.: 1.50."""
+    return f"{converter_odd_para_decimal(valor, formato_origem):.2f}"
+
+
 def atualizar_quota(headers):
     """Lê os cabeçalhos oficiais de consumo da The Odds API."""
     global _quota_used, _quota_remaining, _quota_last, _quota_checked_at
@@ -431,6 +466,7 @@ async def check_sport_arbitrage(session, sport_key, sport_name, pm_markets):
         "regions": "eu",
         "bookmakers": "pinnacle",
         "markets": "h2h",
+        "oddsFormat": "decimal",
     }
     try:
         async with session.get(url, params=params) as resp:
@@ -786,7 +822,7 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
         if sports_analysis and sports_analysis.get("status") == "ok":
             sports_analysis_text = "\n\n" + formatar_analise_sports(sports_analysis) + "\n"
         pinnacle_odd_text = (
-            f"Odd Pinnacle: {float(pinnacle_odds):.3f}\n"
+            f"Odd decimal (Pinnacle): {formatar_odd_decimal(pinnacle_odds)}\n"
             if pinnacle_odds is not None else ""
         )
         message = (
@@ -799,7 +835,7 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             f"{info['name']}\n"
             f"Probabilidade sem vig: {fair_prob * 100:.1f}%\n"
             f"{pinnacle_odd_text}"
-            f"Preço médio no livro: {ev_data['average_price']:.3f}\n"
+            f"Preço médio do contrato: {ev_data['average_price']:.3f}\n"
             "\n💰 VALOR ESTIMADO\n"
             f"Stake analisada: ${ev_data['stake_usd']:.2f}\n"
             f"EV líquido: {ev_data['net_ev_pct']:+.1f}%\n"
