@@ -36,6 +36,17 @@ class ClobMonitorTests(unittest.TestCase):
         })
         self.assertAlmostEqual(monitor.order_books["token-1"]["spread"], 0.01)
 
+    def test_score_format_includes_live_or_final_status(self):
+        monitor = PolymarketMonitor([])
+        self.assertEqual(
+            monitor.formatar_placar({"score": "20-14", "period": "Q2", "elapsed": "04:12", "live": True}),
+            "AO VIVO | 20-14 | Q2 | 04:12",
+        )
+        self.assertEqual(
+            monitor.formatar_placar({"score": "101-99", "period": "Final", "ended": True}),
+            "ENCERRADO | 101-99 | Final",
+        )
+
     def test_event_title_is_shortened_without_market_rules(self):
         monitor = PolymarketMonitor([])
         market = {
