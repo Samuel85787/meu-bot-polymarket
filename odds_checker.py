@@ -16,7 +16,7 @@ from health_status import set_service
 from signal_quality import classificar_qualidade_odds
 from sports_score_checker import obter_placar_mercado
 from tennis_api import AcesAPIError, analisar_matchup, formatar_analise_matchup
-from api_sports import SportsAPIError, analisar_confronto, formatar_analise as formatar_analise_sports
+from espn_sports import SportsDataError, analisar_confronto, formatar_analise as formatar_analise_sports
 
 logger = logging.getLogger(__name__)
 
@@ -714,7 +714,7 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team,
                         home_team, away_team, analise_sports.get("status"),
                     )
                     analise_sports = None
-            except SportsAPIError as exc:
+            except SportsDataError as exc:
                 logger.warning("API-SPORTS indisponível para análise %s: %s", sport_api, exc)
             except Exception as exc:
                 logger.warning("Falha na análise API-SPORTS (%s): %s", sport_api, type(exc).__name__)
