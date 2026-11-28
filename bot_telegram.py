@@ -8,7 +8,7 @@ import aiohttp
 import config
 from clob_websocket import PolymarketMonitor
 from gamma_api import fetch_active_markets
-from odds_checker import check_arbitrage
+from odds_checker import check_arbitrage, get_quota_status
 from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
 from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest)
@@ -259,6 +259,25 @@ async def processar_comando(texto):
             f"Liquidez mínima no melhor ask: ${config.ODDS_MIN_TOP_ASK_USD:.2f}\\n"
             f"Cooldown Odds: {config.ODDS_COOLDOWN_SECONDS}s"
         )
+
+    elif texto in ["/creditos", "/credits", "/quota"]:
+        quota = get_quota_status()
+        if quota["remaining"] is None:
+            mensagem = "CRÉDITOS DA API\nAinda não recebi o saldo da The Odds API. Ele será atualizado na próxima consulta gratuita de esportes."
+        else:
+            usados = quota["used"] if quota["used"] is not None else "—"
+            restantes = quota["remaining"]
+            total = quota["total"] if quota["total"] is not None else "—"
+            estado = "PAUSADO para preservar a reserva" if quota["paused"] else "Ativo"
+            mensagem = (
+                "CRÉDITOS DA API\n"
+                f"Usados: {usados} de {total}\n"
+                f"Restantes: {restantes}\n"
+                f"Reserva protegida: {quota['reserve']}\n"
+                f"Estado das consultas: {estado}\n"
+                "A consulta de esportes usada para atualizar o saldo não consome créditos."
+            )
+        await enviar_mensagem(mensagem)
 
     elif texto in ["/status", "/help", "/ajuda"]:
         estado = "Ligado" if monitor_ativo else "Desligado"
