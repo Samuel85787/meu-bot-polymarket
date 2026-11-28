@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import unittest
@@ -124,6 +125,48 @@ class AlertHistoryTests(unittest.TestCase):
         ranking = alert_history.get_sport_ranking(30, min_samples=1)
         self.assertEqual(ranking[0]["draws"], 1)
         self.assertIsNone(ranking[0]["win_rate"])
+
+    def test_update_resolutions_persists_confirmed_50_50_draw(self):
+        market = {"id": "market-draw-api", "_sport": "NFL"}
+        alert_history.record_alert(
+            "odds_value", "EV líquido", market, token_id="draw-token",
+            entry_price=0.37, reference_prob=0.55, stake_usd=100,
+            details={"gross_shares": 270.27, "net_shares": 270.27},
+        )
+        payload = {
+            "closed": True,
+            "clobTokenIds": ["draw-token", "other-token"],
+            "outcomes": ["Yes", "No"],
+            "outcomePrices": ["0.5", "0.5"],
+        }
+        class FakeResponse:
+            status = 200
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+            async def json(self):
+                return payload
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+            def get(self, url):
+                return FakeResponse()
+        with patch.object(alert_history.aiohttp, "ClientSession", return_value=FakeSession()):
+            atualizados = asyncio.run(alert_history.update_resolutions())
+        self.assertEqual(atualizados, 1)
+        with alert_history._connection() as db:
+            row = db.execute(
+                "SELECT won, settlement_value, pnl_usd, roi_pct, resolved_at "
+                "FROM alerts WHERE token_id = 'draw-token'"
+            ).fetchone()
+        self.assertIsNone(row["won"])
+        self.assertAlmostEqual(row["settlement_value"], 0.5)
+        self.assertAlmostEqual(row["pnl_usd"], 35.135)
+        self.assertAlmostEqual(row["roi_pct"], 35.135)
+        self.assertIsNotNone(row["resolved_at"])
 
     def test_backtest_includes_partial_settlement_without_calling_it_a_win(self):
         market = {"id": "market-half", "_sport": "NFL"}
