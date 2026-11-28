@@ -13,6 +13,7 @@ from market_context import formatar_contexto_mercado
 from telegram_notifier import send_alert
 from alert_history import record_alert
 from health_status import set_service
+from signal_quality import classificar_qualidade_odds
 
 logger = logging.getLogger(__name__)
 
@@ -557,7 +558,15 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             config.POLYMARKET_BASE_URL + "/event/" + slug
             if slug else config.POLYMARKET_BASE_URL
         )
-        # A notificação prioriza a leitura rápida; métricas técnicas ficam no histórico/log.
+        # A classificação mede preço/liquidez/execução; não é probabilidade de acerto.
+        qualidade = classificar_qualidade_odds(
+            ev_data,
+            minimum_edge_pct=config.ODDS_EDGE_THRESHOLD * 100,
+            max_spread_pct=config.ODDS_MAX_SPREAD_PCT,
+            max_slippage_pct=config.ODDS_MAX_SLIPPAGE_PCT,
+            stake_usd=ev_data["stake_usd"],
+            max_book_age_seconds=config.ODDS_MAX_BOOK_AGE_SECONDS,
+        )
         message = (
             "🎯 OPORTUNIDADE ENCONTRADA\n\n"
             f"🏟️ {game.get('home_team', '')} x {game.get('away_team', '')}\n"
@@ -565,9 +574,12 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             f"👉 Escolha: {info['name']}\n"
             f"📊 Chance estimada: {fair_prob * 100:.1f}%\n"
             f"💵 Valor analisado: ${ev_data['stake_usd']:.2f}\n"
-            f"📈 Retorno esperado: ${ev_data['net_profit_usd']:+.2f} "
-            f"({ev_data['net_ev_pct']:+.1f}%)\n\n"
-            "⚠️ Estimativa baseada nas cotações atuais; não é lucro garantido.\n"
+            f"📈 Retorno esperado estimado: ${ev_data['net_profit_usd']:+.2f} "
+            f"({ev_data['net_ev_pct']:+.1f}%)\n"
+            f"🧭 Condições de preço e liquidez: {qualidade['label']} "
+            f"({qualidade['score']}/{qualidade['max_score']})\n\n"
+            "⚠️ Classificação baseada nas condições atuais de preço e liquidez; "
+            "não prevê o resultado nem garante lucro.\n"
             f"🔗 Ver mercado: {link}"
         )
         enviado = await send_alert(message)
@@ -580,7 +592,9 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
                 details={"fee_usd": ev_data["fee_usd"], "spread_pct": ev_data["spread_pct"],
                          "slippage_pct": ev_data["slippage_pct"],
                          "gross_shares": ev_data["gross_shares"],
-                         "net_shares": ev_data["net_shares"]},
+                         "net_shares": ev_data["net_shares"],
+                         "quality_label": qualidade["label"],
+                         "quality_score": qualidade["score"]},
             )
             logger.info("Oportunidade Odds Value enviada: %s", info["name"])
         else:
