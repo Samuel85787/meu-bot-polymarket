@@ -110,7 +110,9 @@ def _walk_team_nodes(node):
             node.get("displayName") or node.get("name")
         ):
             yield node
-        for value in node.values():
+        for key, value in node.items():
+            if key == "team" and isinstance(value, dict):
+                continue
             yield from _walk_team_nodes(value)
     elif isinstance(node, list):
         for value in node:
