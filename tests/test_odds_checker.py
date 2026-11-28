@@ -174,7 +174,7 @@ class TennisAutomaticAnalysisTests(unittest.IsolatedAsyncioTestCase):
         pm_market = {
             "_sport": "NBA",
             "conditionId": "nba-condition-1",
-            "question": "Dallas Mavericks vs Golden State Warriors",
+            "question": "Will Dallas Mavericks win against Golden State Warriors?",
             "outcomes": ["Yes", "No"],
             "clobTokenIds": ["yes-token", "no-token"],
             "feesEnabled": False,
