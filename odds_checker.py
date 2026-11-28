@@ -710,14 +710,14 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team,
                 analise_sports = await analisar_confronto(sport_api, home_team, away_team)
                 if analise_sports.get("status") != "ok":
                     logger.info(
-                        "Análise API-SPORTS não concluiu para %s x %s: %s",
+                        "Análise ESPN não concluiu para %s x %s: %s",
                         home_team, away_team, analise_sports.get("status"),
                     )
                     analise_sports = None
             except SportsDataError as exc:
-                logger.warning("API-SPORTS indisponível para análise %s: %s", sport_api, exc)
+                logger.warning("Feed ESPN indisponível para análise %s: %s", sport_api, exc)
             except Exception as exc:
-                logger.warning("Falha na análise API-SPORTS (%s): %s", sport_api, type(exc).__name__)
+                logger.warning("Falha na análise ESPN (%s): %s", sport_api, type(exc).__name__)
 
         enviado = await send_arbitrage_alert(
             game, info, info["odds"], fair_prob, ev_data, pm_market, token_id,
