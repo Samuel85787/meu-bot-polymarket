@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 
 import aiohttp
 
@@ -13,6 +14,7 @@ from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
 from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest, get_period_metrics, get_sport_ranking)
 from health_status import set_service, format_status
+from tennis_api import (AcesAPIError, buscar_perfil, buscar_confronto, formatar_perfil, formatar_confronto)
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +327,65 @@ async def processar_comando(texto):
                 "A consulta de esportes usada para atualizar o saldo não consome créditos."
             )
         await enviar_mensagem(mensagem)
+
+    elif texto.startswith("/tenis"):
+        partes = texto.split(maxsplit=2)
+        if len(partes) < 2:
+            await enviar_mensagem("Use: /tenis [atp|wta] nome do jogador. Ex.: /tenis atp sinner ou /tenis wta iga swiatek")
+        else:
+            liga = "tennis"
+            if partes[1] in ("wta", "atp"):
+                liga = "wta" if partes[1] == "wta" else "tennis"
+                nome = partes[2].strip() if len(partes) > 2 else ""
+            else:
+                nome = " ".join(partes[1:]).strip()
+            if not nome:
+                await enviar_mensagem("Informe o nome do jogador. Ex.: /tenis wta iga swiatek")
+            else:
+                try:
+                    perfil = await buscar_perfil(nome, liga)
+                    if perfil.get("status") == "ambiguous":
+                        candidatos = perfil.get("candidates") or []
+                        linhas = ["Encontrei mais de um jogador. Informe o nome completo:"]
+                        linhas.extend(
+                            f"• {item.get('name')} ({item.get('country') or 'país —'})"
+                            for item in candidatos
+                        )
+                        await enviar_mensagem("\n".join(linhas))
+                    elif perfil.get("status") != "ok":
+                        await enviar_mensagem(
+                            f"Não encontrei {nome} no circuito selecionado. "
+                            "Confira a grafia ou tente especificar ATP/WTA."
+                        )
+                    else:
+                        await enviar_mensagem(formatar_perfil(perfil))
+                except AcesAPIError as exc:
+                    await enviar_mensagem(f"Consulta AcesAPI: {exc}")
+
+    elif texto.startswith("/h2h"):
+        argumentos = texto[len("/h2h"):].strip()
+        liga = "tennis"
+        if argumentos.startswith("wta "):
+            liga = "wta"
+            argumentos = argumentos[4:].strip()
+        elif argumentos.startswith("atp "):
+            argumentos = argumentos[4:].strip()
+        confronto = re.split(r"\\s+(?:vs|x)\\s+", argumentos, maxsplit=1)
+        if len(confronto) != 2 or not all(confronto):
+            await enviar_mensagem("Use: /h2h [wta] jogador 1 vs jogador 2. Ex.: /h2h sinner vs alcaraz")
+        else:
+            try:
+                resultado = await buscar_confronto(confronto[0], confronto[1], liga)
+                if resultado.get("status") == "same_player":
+                    await enviar_mensagem("Os dois nomes foram identificados como o mesmo jogador.")
+                elif resultado.get("status") == "not_found":
+                    await enviar_mensagem("Não consegui identificar os dois jogadores. Confira os nomes e o circuito (ATP/WTA).")
+                elif resultado.get("status") == "ambiguous":
+                    await enviar_mensagem("A busca encontrou nomes ambíguos. Tente usar os nomes completos dos dois jogadores.")
+                else:
+                    await enviar_mensagem(formatar_confronto(resultado))
+            except AcesAPIError as exc:
+                await enviar_mensagem(f"Consulta AcesAPI: {exc}")
 
     elif texto in ["/status", "/help", "/ajuda"]:
         estado = "Ligado" if monitor_ativo else "Desligado"
