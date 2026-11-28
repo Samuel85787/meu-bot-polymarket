@@ -373,7 +373,7 @@ class PolymarketMonitor:
                 linhas.append(
                     f"Retorno bruto se vencer: {retorno_anterior}  →  {retorno_atual}"
                 )
-            linhas.append(f"💧 Liquidez do mercado: \${liquidez:,.0f}")
+            linhas.append(f"💧 Liquidez do mercado: ${liquidez:,.0f}")
             if placar:
                 linhas.append(f"🏟️ {placar}")
             linhas.extend([
@@ -479,13 +479,13 @@ class PolymarketMonitor:
                 "━━━━━━━━━━━━━━━━━━━━",
                 f"{self.titulo_evento_curto(market)}  ·  {esporte}",
                 f"{'🟢' if side_raw == 'BUY' else '🔴'} {side_texto}  ·  {outcome_name}",
-                f"💵 Ordem estimada: \${usd_value:,.0f}",
+                f"💵 Ordem estimada: ${usd_value:,.0f}",
                 f"Preço do contrato: {price:.3f}"
                 + (f"  ·  retorno bruto {retorno}" if retorno else ""),
             ]
             if liquidez > 0:
                 impacto = usd_value / liquidez * 100
-                linhas.append(f"💧 Liquidez: \${liquidez:,.0f}  ·  impacto estimado {impacto:.1f}%")
+                linhas.append(f"💧 Liquidez: ${liquidez:,.0f}  ·  impacto estimado {impacto:.1f}%")
             if fluxo:
                 linhas.extend(["", "📊 FLUXO  ·  30 MIN", fluxo])
             if book:
