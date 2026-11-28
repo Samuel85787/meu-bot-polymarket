@@ -362,15 +362,19 @@ def _formatar_forma(form):
 
 def formatar_analise_matchup(analise, reference_prob=None, selected_player=None):
     if analise.get("status") != "ok":
-        return "Não foi possível montar a análise: jogadores não identificados de forma inequívoca."
+        return "⚠️ Não foi possível montar a análise: jogadores não identificados de forma inequívoca."
 
     a, b = analise["player_a"], analise["player_b"]
-    pa, pb = a["profile"], b["profile"]
-    name_a, name_b = a["name"], b["name"]
+    nome_a, nome_b = a["name"], b["name"]
     superficie = analise.get("surface_name") or "não identificada"
+    circuito = "WTA" if analise.get("league") == "wta" else "ATP"
     linhas = [
-        f"🎾 ANÁLISE PRÉ-JOGO — {name_a} x {name_b}",
-        f"Circuito: {'WTA' if analise.get('league') == 'wta' else 'ATP'} | Piso: {superficie}",
+        "🎾 ANÁLISE DE MATCHUP",
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"{nome_a}  x  {nome_b}",
+        f"📍 {circuito}  •  Superfície: {superficie}",
+        "",
+        "📊 ELO E REFERÊNCIA DE PROBABILIDADE",
     ]
 
     elo_a, elo_b = a.get("elo"), b.get("elo")
@@ -378,55 +382,60 @@ def formatar_analise_matchup(analise, reference_prob=None, selected_player=None)
         p = analise.get("elo_probability_a")
         fonte = "Elo por superfície" if analise.get("elo_source") != "geral" else "Elo geral"
         linhas.extend([
-            f"{fonte}: {name_a} {elo_a:.0f} x {elo_b:.0f} {name_b}",
-            f"Probabilidade implícita Elo: {name_a} {p * 100:.1f}% | {name_b} {(1-p) * 100:.1f}%",
+            f"{fonte}: {nome_a} {elo_a:.0f}  x  {elo_b:.0f} {nome_b}",
+            f"Estimativa teórica Elo: {nome_a} {p * 100:.1f}%  •  {nome_b} {(1-p) * 100:.1f}%",
         ])
         if reference_prob is not None and selected_player:
             nome_selecionado = _normalizar_nome(selected_player)
-            if nome_selecionado == _normalizar_nome(name_a):
+            if nome_selecionado == _normalizar_nome(nome_a):
                 p_sel = p
-            elif nome_selecionado == _normalizar_nome(name_b):
+            elif nome_selecionado == _normalizar_nome(nome_b):
                 p_sel = 1 - p
             else:
                 p_sel = None
             if p_sel is not None:
                 diferenca = (p_sel - reference_prob) * 100
-                sinal = "+" if diferenca >= 0 else ""
                 linhas.append(
-                    f"Diferença Elo x probabilidade sem vig da Pinnacle ({selected_player}): "
-                    f"{sinal}{diferenca:.1f} p.p."
+                    f"Distância Elo vs Pinnacle ({selected_player}): "
+                    f"{diferenca:+.1f} pontos percentuais"
                 )
     else:
         linhas.append("Elo: dados insuficientes para comparar os dois jogadores.")
 
     if analise.get("surface"):
-        linhas.append(f"Desempenho histórico em {superficie.lower()}:")
+        linhas.extend(["", f"🎾 DESEMPENHO EM {superficie.upper()}"])
         for jogador in (a, b):
             record = jogador.get("surface_record") or {}
             wins, losses = record.get("wins"), record.get("losses")
             if wins is not None and losses is not None:
                 total = int(wins) + int(losses)
                 pct = float(record.get("win_pct", wins / total if total else 0)) * 100
-                linhas.append(f"• {jogador['name']}: {wins}V–{losses}D ({pct:.1f}%, {total} jogos)")
+                linhas.append(
+                    f"{jogador['name']}: {wins}V–{losses}D  •  {pct:.1f}%  •  {total} jogos"
+                )
             else:
-                linhas.append(f"• {jogador['name']}: sem registro de carreira por piso")
+                linhas.append(f"{jogador['name']}: sem registro de carreira neste piso")
 
-    linhas.append("Forma — últimos jogos registrados:")
-    linhas.append(f"• {name_a}: {_formatar_forma(a.get('recent_form'))}")
-    linhas.append(f"• {name_b}: {_formatar_forma(b.get('recent_form'))}")
+    linhas.extend([
+        "",
+        "🔥 FORMA RECENTE",
+        f"{nome_a}: {_formatar_forma(a.get('recent_form'))}",
+        f"{nome_b}: {_formatar_forma(b.get('recent_form'))}",
+    ])
 
     h2h = analise["h2h"]
+    linhas.extend(["", "⚔️ CONFRONTO DIRETO"])
     if analise.get("surface"):
         linhas.append(
-            f"H2H em {superficie.lower()}: {name_a} {h2h['surface_wins_a']} x "
-            f"{h2h['surface_wins_b']} {name_b} ({h2h['surface_matches']} encontros)"
+            f"Neste piso: {nome_a} {h2h['surface_wins_a']} x "
+            f"{h2h['surface_wins_b']} {nome_b}  •  {h2h['surface_matches']} encontros"
         )
         if h2h["surface_matches"] < 3:
-            linhas.append("• Amostra pequena neste piso; não atribuir peso decisivo ao H2H.")
+            linhas.append("ⓘ Amostra pequena neste piso; não atribua peso decisivo ao H2H.")
     else:
         linhas.append(
-            f"H2H geral: {name_a} {h2h['wins_a']} x {h2h['wins_b']} {name_b} "
-            f"({h2h['total']} encontros)"
+            f"Geral: {nome_a} {h2h['wins_a']} x {h2h['wins_b']} {nome_b}  •  "
+            f"{h2h['total']} encontros"
         )
 
     avisos = []
@@ -434,20 +443,18 @@ def formatar_analise_matchup(analise, reference_prob=None, selected_player=None)
         idade = jogador.get("elo_age_days")
         if idade is not None and idade > 45:
             avisos.append(
-                f"Elo de {jogador['name']} sem atualização por {idade} dias "
+                f"Elo de {jogador['name']} sem atualização há {idade} dias "
                 f"(última referência: {jogador.get('elo_date')})."
             )
     if avisos:
-        linhas.append("⚠️ Atualização dos dados:")
-        linhas.extend(f"• {aviso}" for aviso in avisos)
+        linhas.extend(["", "⚠️ QUALIDADE E ATUALIZAÇÃO DOS DADOS", *avisos])
 
     linhas.extend([
         "",
-        "Leitura estatística exploratória. A probabilidade Elo é teórica, não calibrada.",
-        "A análise não altera o EV nem substitui a probabilidade sem vig da Pinnacle.",
+        "ℹ️ A probabilidade Elo é teórica e ainda não calibrada.",
+        "Esta análise é contexto; não altera a probabilidade sem vig da Pinnacle nem o EV.",
     ])
     return "\n".join(linhas)
-
 
 def formatar_perfil(perfil):
     jogador = perfil.get("player") or {}
