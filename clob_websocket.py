@@ -240,7 +240,10 @@ class PolymarketMonitor:
         elapsed = str(placar.get("elapsed") or "").strip()
         if not score and not period:
             return None
-        partes = [p for p in [score, period, elapsed] if p]
+        status = "AO VIVO" if placar.get("live") is True else (
+            "ENCERRADO" if placar.get("ended") is True else None
+        )
+        partes = [p for p in [status, score, period, elapsed] if p]
         return " | ".join(partes)
 
     async def run(self):
