@@ -15,6 +15,7 @@ from telegram_notifier import fechar_notificador, iniciar_notificador, send_aler
 from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest, get_period_metrics, get_sport_ranking)
 from health_status import set_service, format_status
 from tennis_api import (AcesAPIError, buscar_perfil, buscar_confronto, analisar_matchup, formatar_perfil, formatar_confronto, formatar_analise_matchup, formatar_ambiguidades_h2h)
+from api_sports import (SportsAPIError, analisar_confronto, formatar_analise as formatar_analise_sports, listar_jogos, formatar_jogos, obter_cotas, formatar_cotas)
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +363,46 @@ async def processar_comando(texto):
                 except AcesAPIError as exc:
                     await enviar_mensagem(f"Consulta AcesAPI: {exc}")
 
+    elif texto in ["/sportsquota", "/sportsquotas", "/quotasports"]:
+        cotas = await obter_cotas()
+        await enviar_mensagem(formatar_cotas(cotas))
+
+    elif texto.startswith("/jogosnba") or texto.startswith("/jogosnfl"):
+        sport = "NBA" if texto.startswith("/jogosnba") else "NFL"
+        partes = texto.split()
+        data = partes[1] if len(partes) > 1 else None
+        try:
+            data_consulta, jogos = await listar_jogos(sport, data)
+            await enviar_mensagem(formatar_jogos(sport, data_consulta, jogos))
+        except SportsAPIError as exc:
+            await enviar_mensagem(f"API-SPORTS: {exc}")
+
+    elif texto.startswith("/nba") or texto.startswith("/nfl"):
+        sport = "NBA" if texto.startswith("/nba") else "NFL"
+        comando = "/nba" if sport == "NBA" else "/nfl"
+        argumentos = texto[len(comando):].strip()
+        confronto = re.split(r"\s+(?:vs|x)\s+", argumentos, maxsplit=1)
+        if len(confronto) != 2 or not all(confronto):
+            await enviar_mensagem(
+                f"Use: {comando} equipe da casa vs equipe visitante. "
+                f"Ex.: {comando} boston celtics vs los angeles lakers"
+            )
+        else:
+            try:
+                resultado = await analisar_confronto(sport, confronto[0], confronto[1])
+                if resultado.get("status") == "ok":
+                    await enviar_mensagem(formatar_analise_sports(resultado))
+                elif resultado.get("status") == "same_team":
+                    await enviar_mensagem("As duas equipes foram identificadas como a mesma.")
+                else:
+                    candidatas = resultado.get("home_candidates") or []
+                    extra = "\nEquipes conhecidas: " + ", ".join(candidatas[:8]) if candidatas else ""
+                    await enviar_mensagem(
+                        "Não consegui identificar as duas equipes. Confira os nomes." + extra
+                    )
+            except SportsAPIError as exc:
+                await enviar_mensagem(f"API-SPORTS: {exc}")
+
     elif texto.startswith("/prejogo") or texto.startswith("/analise"):
         argumentos = texto.split(maxsplit=1)[1].strip() if len(texto.split(maxsplit=1)) > 1 else ""
         liga = "tennis"
@@ -466,6 +507,11 @@ async def processar_comando(texto):
             "/tenis [atp|wta] nome - Perfil e estatísticas de tênis\n"
             "/h2h [wta] jogador 1 vs jogador 2 - Confronto direto\n"
             "/prejogo [atp|wta] jogador 1 vs jogador 2 [piso] - Análise de matchup\n"
+            "/nba equipe 1 vs equipe 2 - Análise pré-jogo NBA\n"
+            "/nfl equipe 1 vs equipe 2 - Análise pré-jogo NFL\n"
+            "/jogosnba [AAAA-MM-DD] - Agenda da NBA\n"
+            "/jogosnfl [AAAA-MM-DD] - Agenda da NFL\n"
+            "/sportsquota - Consumo diário das APIs NBA/NFL\n"
             "/setbet [valor] - Mudar filtro\n"
             "/setspike [ex: 0.15 ou 15] - Mudar oscilacao\n"
             "/setwhale - Ligar/Desligar baleias"
