@@ -14,6 +14,7 @@ from telegram_notifier import send_alert
 from alert_history import record_alert
 from health_status import set_service
 from signal_quality import classificar_qualidade_odds
+from sports_score_checker import obter_placar_mercado
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,19 @@ def get_quota_status():
         "paused": paused,
     }
 
+
+def formatar_placar_evento(market):
+    """Usa apenas placar recente já recebido pelo feed esportivo da Polymarket."""
+    placar = obter_placar_mercado(market or {})
+    if not isinstance(placar, dict):
+        return None
+    partes = [
+        str(placar.get("score") or "").strip(),
+        str(placar.get("period") or "").strip(),
+        str(placar.get("elapsed") or "").strip(),
+    ]
+    partes = [parte for parte in partes if parte]
+    return " | ".join(partes) if partes else None
 
 def normalize_team_name(name):
     value = unicodedata.normalize("NFKD", str(name or "").lower())
@@ -651,10 +665,13 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             stake_usd=ev_data["stake_usd"],
             max_book_age_seconds=config.ODDS_MAX_BOOK_AGE_SECONDS,
         )
+        placar = formatar_placar_evento(pm_market)
+        placar_texto = f"⏱️ Placar ao vivo: {placar}\\n" if placar else ""
         message = (
             "🎯 OPORTUNIDADE ENCONTRADA\n\n"
             f"🏟️ {game.get('home_team', '')} x {game.get('away_team', '')}\n"
             f"🏆 {pm_market.get('_sport') or pm_market.get('sport') or 'Esporte'}\n"
+            f"{placar_texto}"
             f"👉 Escolha: {info['name']}\n"
             f"📊 Chance estimada: {fair_prob * 100:.1f}%\n"
             f"💵 Valor analisado: ${ev_data['stake_usd']:.2f}\n"
