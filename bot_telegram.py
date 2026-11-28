@@ -509,33 +509,53 @@ async def processar_comando(texto):
         await enviar_mensagem(msg)
 
     elif texto == "/status":
-        estado = "🟢 Ligado" if monitor_ativo else "⏸️ Desligado"
-        diagnostico = format_status()
-        baleias = "Ligado" if config.ENABLE_WHALE_ALERTS else "Desligado"
+        estado = "🟢 ATIVO" if monitor_ativo else "⏸️ PAUSADO"
+        diagnostico = format_status(monitor_active=monitor_ativo)
+        baleias = "ON" if config.ENABLE_WHALE_ALERTS else "OFF"
         mercados = monitor_instance.markets if monitor_instance else []
         contagem = {esporte: 0 for esporte in config.SPORT_TAGS}
         for mercado in mercados:
             esporte = mercado.get("_sport")
             if esporte in contagem:
                 contagem[esporte] += 1
-        resumo_esportes = "\n".join(
-            f"• {esporte}: {quantidade}" for esporte, quantidade in contagem.items()
+
+        grupos = [
+            ("NBA", "NBA"),
+            ("NFL", "NFL"),
+            ("Tênis ATP", "ATP"),
+            ("Tênis WTA", "WTA"),
+            ("CS2", "CS2"),
+            ("VALORANT", "VAL"),
+        ]
+        resumo_esportes = "  ·  ".join(
+            f"{curto} {contagem.get(chave, 0)}" for chave, curto in grupos
         )
-        msg = (
-            "🩺 STATUS DO BOT\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            f"Monitor: {estado}\n"
-            f"Mercados acompanhados: {len(mercados)}\n"
-            f"Filtro mínimo: ${config.MIN_BET_AMOUNT:.2f}\n"
-            f"Oscilação mínima: {config.PRICE_SPIKE_THRESHOLD * 100:.1f}%\n"
-            f"Alertas de baleias: {baleias}\n\n"
-            "📡 SAÚDE DOS SERVIÇOS\n"
-            f"{diagnostico}\n\n"
-            "🧭 MERCADOS POR ESPORTE\n"
-            f"{resumo_esportes}\n\n"
-            "Consulte /ajuda para ver todos os comandos."
-        )
-        await enviar_mensagem(msg)
+
+        linhas = [
+            "🩺 PAINEL DO BOT",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"Monitor: {estado}",
+            f"Mercados no radar: {len(mercados)}",
+            "",
+            "⚙️ FILTROS",
+            f"Mínimo: \${config.MIN_BET_AMOUNT:.0f}  ·  Oscilação: {config.PRICE_SPIKE_THRESHOLD * 100:.1f}%",
+            f"Grandes ordens: {baleias}",
+            "",
+            "📡 CONEXÕES",
+            diagnostico,
+            "",
+            "🏟️ RADAR POR ESPORTE",
+        ]
+        if not monitor_ativo:
+            linhas.append("Monitor pausado. Nenhum mercado está sendo acompanhado.")
+            linhas.append(f"Última configuração: {resumo_esportes}")
+            linhas.extend(["", "▶️ Para começar a monitorar: /start"])
+        elif mercados:
+            linhas.append(resumo_esportes)
+        else:
+            linhas.append("Carregando a lista de mercados...")
+        linhas.extend(["", "📚 Comandos e exemplos: /ajuda"])
+        await enviar_mensagem("\n".join(linhas))
 
     elif texto.startswith("/setbet"):
         try:
