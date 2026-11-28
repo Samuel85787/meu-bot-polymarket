@@ -19,6 +19,7 @@ BOT_COMMANDS = [
     {"command": "stop", "description": "Pausar o monitor"},
     {"command": "ajuda", "description": "Abrir o guia de comandos"},
     {"command": "status", "description": "Ver saúde e configurações do bot"},
+    {"command": "previa", "description": "Ver exemplos visuais dos alertas"},
     {"command": "nba", "description": "Analisar confronto NBA (equipe 1 vs equipe 2)"},
     {"command": "nfl", "description": "Analisar confronto NFL (equipe 1 vs equipe 2)"},
     {"command": "jogosnba", "description": "Ver agenda atual ou por data da NBA"},
