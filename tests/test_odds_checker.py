@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import odds_checker
@@ -10,6 +11,7 @@ from odds_checker import (
     teams_match,
     _infer_yes_side,
     _sport_for_key,
+    detectar_superficie_tenis,
     selecionar_feeds_para_ciclo,
 )
 
@@ -77,6 +79,82 @@ class OddsCooldownTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(len(odds_checker._last_odds_alert), 1)
+
+
+
+
+class TennisAutomaticAnalysisTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        odds_checker._last_odds_alert.clear()
+
+    async def test_surface_detector_uses_explicit_surface_metadata(self):
+        self.assertEqual(
+            detectar_superficie_tenis({"surface": "Clay"}, {}),
+            "clay",
+        )
+        self.assertEqual(
+            detectar_superficie_tenis({}, {"description": "ATP match on grass court"}),
+            "grass",
+        )
+        self.assertIsNone(
+            detectar_superficie_tenis({}, {"question": "Will Sinner win easily?"})
+        )
+
+    async def test_qualified_prematch_tennis_alert_includes_aces_analysis(self):
+        inicio = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+        game = {
+            "id": "tennis-match-1",
+            "home_team": "Jannik Sinner",
+            "away_team": "Alexander Zverev",
+            "commence_time": inicio,
+        }
+        pinnacle_market = {
+            "outcomes": [
+                {"name": "Jannik Sinner", "price": 1.50},
+                {"name": "Alexander Zverev", "price": 3.00},
+            ]
+        }
+        pm_market = {
+            "_sport": "Tênis ATP",
+            "conditionId": "tennis-condition-1",
+            "question": "Will Jannik Sinner beat Alexander Zverev?",
+            "surface": "hard",
+            "outcomes": ["Yes", "No"],
+            "clobTokenIds": ["yes-token", "no-token"],
+            "feesEnabled": False,
+        }
+        fake_ev = {
+            "net_ev_pct": 10.0, "stake_usd": 100, "average_price": 0.5,
+            "best_bid": 0.49, "best_ask": 0.5, "spread_pct": 2,
+            "slippage_pct": 0, "fee_usd": 0, "gross_shares": 200,
+            "net_shares": 200, "net_profit_usd": 10,
+            "top_ask_depth_usd": 100, "book_age_seconds": 1,
+        }
+        analise = {
+            "status": "ok", "reference_prob": None, "selected_player": None,
+            "surface": "hard", "league": "tennis",
+        }
+        with patch.object(odds_checker, "_estimate_market_ev",
+                          new=AsyncMock(side_effect=[fake_ev, None])), \
+             patch.object(odds_checker, "analisar_matchup",
+                          new=AsyncMock(return_value=analise)) as analisar, \
+             patch.object(odds_checker, "send_arbitrage_alert",
+                          new=AsyncMock(return_value=True)) as send:
+            await check_outcomes(
+                game, pinnacle_market, pm_market,
+                "Jannik Sinner", "Alexander Zverev", session=object(),
+            )
+
+        analisar.assert_awaited_once_with(
+            "Jannik Sinner", "Alexander Zverev",
+            league="tennis", surface="hard",
+        )
+        self.assertTrue(send.await_args.kwargs["tennis_analysis"]["status"] == "ok")
+
+    async def test_live_or_unknown_start_time_does_not_spend_aces_credits(self):
+        self.assertFalse(odds_checker._eh_pre_jogo({"commence_time": None}))
+        passado = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        self.assertFalse(odds_checker._eh_pre_jogo({"commence_time": passado}))
 
 
 class OddsMatchingTests(unittest.TestCase):
