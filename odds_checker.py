@@ -116,6 +116,18 @@ def _sport_for_key(sport):
         return "VALORANT"
     return None
 
+async def atualizar_saldo_api():
+    """Atualiza a quota pelo endpoint gratuito /sports, sem consumir créditos de odds."""
+    if not config.ODDS_API_KEY:
+        return get_quota_status()
+    timeout = aiohttp.ClientTimeout(total=15, connect=8)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            await discover_supported_sports(session)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+        logger.warning("Não foi possível atualizar o saldo da Odds API: %s", type(exc).__name__)
+    return get_quota_status()
+
 
 async def discover_supported_sports(session):
     """Descobre os sport keys efetivamente disponibilizados pela conta da Odds API."""
