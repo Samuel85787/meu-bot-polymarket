@@ -258,16 +258,16 @@ def _result_for_team(event, team_id):
         return None
 
     winner = own.get("winner")
-    if winner is True:
+    if own_score == opp_score:
+        outcome = "T"
+    elif winner is True:
         outcome = "W"
     elif winner is False:
         outcome = "L"
     elif own_score > opp_score:
         outcome = "W"
-    elif own_score < opp_score:
-        outcome = "L"
     else:
-        outcome = "T"
+        outcome = "L"
 
     opp_team = opp.get("team") or {}
     own_team = own.get("team") or {}
@@ -523,7 +523,7 @@ def formatar_jogos(data):
     else:
         for event in events[:15]:
             competition = _competition(event)
-            competitors = event.get("competitions", [{}])[0].get("competitors", [])
+            competitors = _competitors(event)
             home = next((x for x in competitors if x.get("homeAway") == "home"), None)
             away = next((x for x in competitors if x.get("homeAway") == "away"), None)
             if not home or not away:
