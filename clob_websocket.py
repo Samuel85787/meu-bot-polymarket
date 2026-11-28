@@ -358,6 +358,7 @@ class PolymarketMonitor:
             liquidez = self.parse_float(market.get("liquidity", 0))
             question = market.get("question", "Mercado desconhecido")
             esporte = market.get("_sport") or market.get("sport") or "Esporte não identificado"
+            placar = self.formatar_placar(obter_placar_mercado(market))
             msg_text = (
                 "📈 MOVIMENTAÇÃO DE PREÇO\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
@@ -370,7 +371,7 @@ class PolymarketMonitor:
                 f"Variação: {pct * 100:+.1f}%\n"
                 f"Direção: {'Alta' if event_type == 'SPIKE_UP' else 'Queda'}\n\n"
                 "💧 LIQUIDEZ\n"
-                f"Liquidez disponível: \${liquidez:,.0f}\n"
+                f"Liquidez disponível: ${liquidez:,.0f}\n"
                 + (f"Placar: {placar}\n" if placar else "")
                 + "\nA oscilação é um alerta de movimentação, não uma recomendação de entrada."
             )
@@ -472,7 +473,7 @@ class PolymarketMonitor:
                 "📌 OPERAÇÃO OBSERVADA\n"
                 f"Seleção: {outcome_name}\n"
                 f"Lado: {side_texto}\n"
-                f"Valor estimado: \${usd_value:,.2f}\n"
+                f"Valor estimado: ${usd_value:,.2f}\n"
                 f"Preço no momento: {price:.3f}\n\n"
                 "🔎 POR QUE CHAMOU ATENÇÃO\n"
                 f"{motivo}\n"
