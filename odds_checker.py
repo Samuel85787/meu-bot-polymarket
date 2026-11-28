@@ -754,15 +754,15 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             max_book_age_seconds=config.ODDS_MAX_BOOK_AGE_SECONDS,
         )
         placar = formatar_placar_evento(pm_market)
-        placar_texto = f"⏱️ Placar ao vivo: {placar}\\n" if placar else ""
+        placar_texto = f"⏱️ Placar ao vivo: {placar}\n" if placar else ""
         tennis_analysis_text = ""
         if tennis_analysis and tennis_analysis.get("status") == "ok":
             tennis_analysis_text = (
-                "\\n\n" + formatar_analise_matchup(
+                "\n\n" + formatar_analise_matchup(
                     tennis_analysis,
                     reference_prob=tennis_analysis.get("reference_prob"),
                     selected_player=tennis_analysis.get("selected_player"),
-                ) + "\\n"
+                ) + "\n"
             )
         message = (
             "🎯 OPORTUNIDADE ENCONTRADA\n\n"
