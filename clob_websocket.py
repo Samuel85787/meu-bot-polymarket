@@ -357,21 +357,24 @@ class PolymarketMonitor:
             volume_total = self.parse_float(market.get("volume", 0))
             liquidez = self.parse_float(market.get("liquidity", 0))
             question = market.get("question", "Mercado desconhecido")
-            titulo = "PRECO SUBIU" if event_type == "SPIKE_UP" else "PRECO CAIU"
-
-            placar = self.formatar_placar(obter_placar_mercado(market))
+            esporte = market.get("_sport") or market.get("sport") or "Esporte não identificado"
             msg_text = (
-                f"📊 {titulo}\n\n"
+                "📈 MOVIMENTAÇÃO DE PREÇO\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
                 f"🏟️ {self.titulo_evento_curto(market)}\n"
-                f"👉 Escolha: {outcome_name}\n"
-                f"💰 Preço: {new_price:.3f}\n"
-                f"📈 Variação: {pct * 100:+.1f}%\n"
-                f"💧 Liquidez do mercado: ${liquidez:,.0f}\n"
-                + (f"⏱️ Placar ao vivo: {placar}\n" if placar else "")
-                + f"🔗 Ver mercado: {link}"
+                f"🏆 {esporte}\n\n"
+                "📌 MERCADO\n"
+                f"Seleção: {outcome_name}\n"
+                f"Preço anterior: {old_price:.3f}\n"
+                f"Preço atual: {new_price:.3f}\n"
+                f"Variação: {pct * 100:+.1f}%\n"
+                f"Direção: {'Alta' if event_type == 'SPIKE_UP' else 'Queda'}\n\n"
+                "💧 LIQUIDEZ\n"
+                f"Liquidez disponível: \${liquidez:,.0f}\n"
+                + (f"Placar: {placar}\n" if placar else "")
+                + "\nA oscilação é um alerta de movimentação, não uma recomendação de entrada."
             )
-
-            enviado = await send_alert(msg_text)
+            enviado = await send_alert(msg_text, button_url=link)
             if enviado:
                 record_alert("price_spike", event_type, market, token_id=token_id,
                              outcome=outcome_name, entry_price=new_price,
@@ -459,23 +462,26 @@ class PolymarketMonitor:
             link = self.gerar_link(market)
             question = market.get("question", "Mercado desconhecido")
 
-            titulo = "MEGA BALEIA" if usd_value >= config.MEGA_BET_AMOUNT else "Aposta Grande"
-
+            titulo = "GRANDE MOVIMENTAÇÃO" if usd_value >= config.MEGA_BET_AMOUNT else "ORDEM DE GRANDE VOLUME"
+            esporte = market.get("_sport") or market.get("sport") or "Esporte não identificado"
             msg_text = (
-                f"🐋 {titulo.upper()}\n\n"
+                f"🐋 {titulo}\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
                 f"🏟️ {self.titulo_evento_curto(market)}\n"
-                f"🏆 {market.get('_sport') or market.get('sport') or 'Esporte'}\n"
-                f"👉 Escolha: {outcome_name}\n"
-                f"🟢 Ação: {side_texto}\n"
-                f"💵 Valor da aposta: ${usd_value:,.2f}\n"
-                f"📊 Preço: {price:.3f}\n"
-                f"📌 Por que chamou atenção: {motivo}\n"
-                + (f"🏟️ Placar: {placar}\n" if placar else "")
-                + (f"📈 Movimentação recente: {fluxo}\n" if fluxo else "")
-                + f"\n🔗 Ver mercado: {link}"
+                f"🏆 {esporte}\n\n"
+                "📌 OPERAÇÃO OBSERVADA\n"
+                f"Seleção: {outcome_name}\n"
+                f"Lado: {side_texto}\n"
+                f"Valor estimado: \${usd_value:,.2f}\n"
+                f"Preço no momento: {price:.3f}\n\n"
+                "🔎 POR QUE CHAMOU ATENÇÃO\n"
+                f"{motivo}\n"
+                + (f"Placar: {placar}\n" if placar else "")
+                + (f"\n📊 FLUXO — ÚLTIMOS 30 MIN\n{fluxo}\n" if fluxo else "")
+                + (f"\n📚 LIVRO DE OFERTAS\n{book}\n" if book else "")
+                + "\nMovimentação observada no mercado. Não comprova informação privilegiada ou resultado futuro."
             )
-
-            enviado = await send_alert(msg_text)
+            enviado = await send_alert(msg_text, button_url=link)
             if enviado:
                 record_alert("whale", side_raw, market, token_id=token_id,
                              outcome=outcome_name, entry_price=price, stake_usd=usd_value,
