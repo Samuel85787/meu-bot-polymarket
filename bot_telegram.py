@@ -538,7 +538,7 @@ async def processar_comando(texto):
             f"Mercados no radar: {len(mercados)}",
             "",
             "⚙️ FILTROS",
-            f"Mínimo: \${config.MIN_BET_AMOUNT:.0f}  ·  Oscilação: {config.PRICE_SPIKE_THRESHOLD * 100:.1f}%",
+            f"Mínimo: ${config.MIN_BET_AMOUNT:.0f}  ·  Oscilação: {config.PRICE_SPIKE_THRESHOLD * 100:.1f}%",
             f"Grandes ordens: {baleias}",
             "",
             "📡 CONEXÕES",
