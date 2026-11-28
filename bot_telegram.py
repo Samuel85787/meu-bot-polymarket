@@ -14,7 +14,7 @@ from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
 from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest, get_period_metrics, get_sport_ranking)
 from health_status import set_service, format_status
-from tennis_api import (AcesAPIError, buscar_perfil, buscar_confronto, formatar_perfil, formatar_confronto)
+from tennis_api import (AcesAPIError, buscar_perfil, buscar_confronto, formatar_perfil, formatar_confronto, formatar_ambiguidades_h2h)
 
 logger = logging.getLogger(__name__)
 
@@ -381,7 +381,7 @@ async def processar_comando(texto):
                 elif resultado.get("status") == "not_found":
                     await enviar_mensagem("Não consegui identificar os dois jogadores. Confira os nomes e o circuito (ATP/WTA).")
                 elif resultado.get("status") == "ambiguous":
-                    await enviar_mensagem("A busca encontrou nomes ambíguos. Tente usar os nomes completos dos dois jogadores.")
+                    await enviar_mensagem(formatar_ambiguidades_h2h(resultado, confronto[0], confronto[1]))
                 else:
                     await enviar_mensagem(formatar_confronto(resultado))
             except AcesAPIError as exc:
