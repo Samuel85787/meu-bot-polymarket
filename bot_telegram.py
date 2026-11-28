@@ -305,6 +305,7 @@ async def processar_comando(texto):
             "/start - Ligar monitor\n"
             "/stop - Desligar monitor\n"
             "/status - Ver status\n"
+            "/creditos - Ver saldo da API de odds\\n"
             "/metrics - Ver desempenho dos alertas\n"
             "/setbet [valor] - Mudar filtro\n"
             "/setspike [ex: 0.15 ou 15] - Mudar oscilacao\n"
