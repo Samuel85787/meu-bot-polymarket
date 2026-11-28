@@ -805,7 +805,7 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             "Não garante execução nem lucro.\n"
             f"🔗 Mercado: {link}"
         )
-        enviado = await send_alert(message)
+        enviado = await send_alert(message, button_url=link)
         if enviado:
             record_alert(
                 "odds_value", "EV líquido", pm_market, token_id=token_id,
