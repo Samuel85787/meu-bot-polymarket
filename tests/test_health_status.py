@@ -12,7 +12,17 @@ class HealthStatusTests(unittest.TestCase):
         report = health_status.format_status()
         self.assertIn("Polymarket CLOB: OK", report)
         self.assertIn("2 tokens", report)
-        self.assertIn("Odds API: ⚪ Sem dados", report)
+        self.assertIn("Odds API: aguardando primeira consulta", report)
+
+    def test_paused_monitor_does_not_report_clob_as_missing(self):
+        report = health_status.format_status(monitor_active=False)
+        self.assertIn("Polymarket CLOB e Gamma: pausados", report)
+        self.assertNotIn("Polymarket CLOB: aguardando", report)
+
+    def test_missing_services_are_waiting_not_failed(self):
+        report = health_status.format_status(monitor_active=True)
+        self.assertIn("Odds API: aguardando primeira consulta", report)
+        self.assertNotIn("falha", report.lower())
 
     def test_age_is_reported(self):
         health_status.set_service("sports_ws", "error", "desconectado")
