@@ -278,7 +278,7 @@ async def processar_comando(texto):
             f'Apostas grandes: {dados["whale_alerts"]}\n'
             f'Oscilações de preço: {dados["spike_alerts"]}\n'
             f'Odds Value pendentes: {dados["odds_pending"]}\n'
-            f'Resultados encerrados: {dados["odds_wins"]} acertos / {dados["odds_losses"]} erros\n'
+            f'Resultados encerrados: {dados["odds_wins"]} acertos / {dados["odds_losses"]} erros / {dados["odds_draws"]} empates\\n'
             f'P&L hipotético: {pnl_texto} | ROI médio: {roi_texto}\n'
             "Valores financeiros são simulações dos alertas, não operações executadas."
         )
