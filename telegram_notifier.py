@@ -4,7 +4,7 @@ import logging
 import aiohttp
 import config
 from health_status import set_service
-from telegram_ui import keyboard_url, render_message, split_message
+from telegram_ui import keyboard_url, render_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -85,18 +85,16 @@ async def send_alert(
     global _last_send_time
     await iniciar_notificador()
     url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
-    raw_chunks = split_message(text)
+    rendered_chunks = render_chunks(text)
     async with _lock:
-        for index, chunk in enumerate(raw_chunks):
-            # render_message escapes every dynamic character before adding trusted tags.
-            rendered = render_message(chunk, first_chunk=(index == 0))
+        for index, rendered in enumerate(rendered_chunks):
             payload = {
                 "chat_id": config.TELEGRAM_CHAT_ID,
                 "text": rendered,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             }
-            if button_url and index == len(raw_chunks) - 1:
+            if button_url and index == len(rendered_chunks) - 1:
                 markup = keyboard_url(button_url, button_label)
                 if markup:
                     payload["reply_markup"] = markup
