@@ -452,7 +452,7 @@ def formatar_analise_matchup(analise, reference_prob=None, selected_player=None)
     linhas.extend([
         "",
         "ℹ️ A probabilidade Elo é teórica e ainda não calibrada.",
-        "Esta análise é contexto; não altera a probabilidade sem vig da Pinnacle nem o EV.",
+        "Esta análise é contexto; não altera o EV nem substitui a probabilidade sem vig da Pinnacle.",
     ])
     return "\n".join(linhas)
 
