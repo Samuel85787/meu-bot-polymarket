@@ -449,8 +449,8 @@ class PolymarketMonitor:
             placar_raw = await asyncio.to_thread(obter_placar_mercado, market)
             placar = self.formatar_placar(placar_raw)
             fluxo = (
-                f"30 min: compras ${buy_flow:,.0f} ({len(buy_trades)} operações) | "
-                f"vendas ${sell_flow:,.0f} ({len(sell_trades)} operações) | "
+                f"Compras ${buy_flow:,.0f} ({len(buy_trades)})  ·  "
+                f"vendas ${sell_flow:,.0f} ({len(sell_trades)})  ·  "
                 f"saldo ${flow_quality['net_flow_usd']:+,.0f}"
             )
             book = self.formatar_book(data.get("asset_id", ""))
