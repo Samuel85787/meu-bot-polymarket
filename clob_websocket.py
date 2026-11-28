@@ -387,10 +387,20 @@ class PolymarketMonitor:
             history.append((now, usd_value, side_raw))
             while history and now - history[0][0] > 1800:
                 history.popleft()
-            buy_flow = sum(value for _, value, side in history if side == "BUY")
-            sell_flow = sum(value for _, value, side in history if side == "SELL")
-            total_flow = buy_flow + sell_flow
-            clustered_flow = len(history) >= 3 and total_flow >= config.MIN_BET_AMOUNT * 2
+            buy_trades = [(value, side) for _, value, side in history if side == "BUY"]
+            sell_trades = [(value, side) for _, value, side in history if side == "SELL"]
+            buy_flow = sum(value for value, _ in buy_trades)
+            sell_flow = sum(value for value, _ in sell_trades)
+            net_flow = buy_flow - sell_flow
+            dominant_flow = max(buy_flow, sell_flow)
+            dominant_trades = buy_trades if buy_flow >= sell_flow else sell_trades
+            # Fluxo concentrado exige repetição na mesma direção; compras e vendas
+            # que se anulam não devem parecer pressão compradora ou vendedora.
+            clustered_flow = (
+                len(dominant_trades) >= 3
+                and dominant_flow >= config.MIN_BET_AMOUNT * 2
+                and abs(net_flow) >= config.MIN_BET_AMOUNT
+            )
 
             is_big_bet = usd_value >= config.MIN_BET_AMOUNT
             is_insider_bet = (
@@ -402,12 +412,16 @@ class PolymarketMonitor:
 
             motivos = []
             if is_big_bet:
-                motivos.append("Valor individual elevado")
+                motivos.append("Aposta individual de valor elevado")
             if is_insider_bet:
-                motivos.append(f"Impacto na liquidez ({ratio_liquidez * 100:.1f}%)")
+                motivos.append(f"Impacto relevante no mercado ({ratio_liquidez * 100:.1f}% da liquidez)")
             if clustered_flow:
-                motivos.append(f"Fluxo acumulado em 30 min (USD {total_flow:,.0f})")
-            motivo = " + ".join(motivos)
+                direcao = "comprador" if net_flow > 0 else "vendedor"
+                motivos.append(
+                    f"Fluxo {direcao} repetido em 30 min "
+                    f"(saldo USD {abs(net_flow):,.0f}; {len(dominant_trades)} operações)"
+                )
+            motivo = " | ".join(motivos)
 
             slug = market.get("slug", "unknown")
             alert_key = f"whale_{slug}_{outcome_name}_{side_raw}"
