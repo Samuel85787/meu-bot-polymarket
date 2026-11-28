@@ -356,6 +356,7 @@ class PolymarketMonitor:
             question = market.get("question", "Mercado desconhecido")
             titulo = "PRECO SUBIU" if event_type == "SPIKE_UP" else "PRECO CAIU"
 
+            placar = self.formatar_placar(obter_placar_mercado(market))
             msg_text = (
                 f"📊 {titulo}\n\n"
                 f"🏟️ {self.titulo_evento_curto(market)}\n"
@@ -363,7 +364,8 @@ class PolymarketMonitor:
                 f"💰 Preço: {new_price:.3f}\n"
                 f"📈 Variação: {pct * 100:+.1f}%\n"
                 f"💧 Liquidez do mercado: ${liquidez:,.0f}\n"
-                f"🔗 Ver mercado: {link}"
+                + (f"⏱️ Placar ao vivo: {placar}\n" if placar else "")
+                + f"🔗 Ver mercado: {link}"
             )
 
             enviado = await send_alert(msg_text)
