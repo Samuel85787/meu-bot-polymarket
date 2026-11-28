@@ -338,7 +338,8 @@ async def check_arbitrage(pm_markets=None):
                 set_service("odds_api", "warning", f"consultas pausadas; {quota['remaining']} créditos restantes")
                 break
             try:
-                await check_sport_arbitrage(session, sport_key, sport_name, pm_markets or [])            except asyncio.CancelledError:
+                await check_sport_arbitrage(session, sport_key, sport_name, pm_markets or [])
+            except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.error("Erro em %s: %s", sport_name, type(exc).__name__)
