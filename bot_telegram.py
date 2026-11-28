@@ -11,7 +11,7 @@ from gamma_api import fetch_active_markets
 from odds_checker import check_arbitrage, get_quota_status
 from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
-from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest)
+from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest, get_period_metrics, get_sport_ranking)
 from health_status import set_service, format_status
 
 logger = logging.getLogger(__name__)
@@ -260,6 +260,48 @@ async def processar_comando(texto):
             f"Cooldown Odds: {config.ODDS_COOLDOWN_SECONDS}s"
         )
 
+    elif texto in ["/resumo", "/hoje"]:
+        dados = get_period_metrics(24)
+        pnl = dados["simulated_pnl_usd"]
+        pnl_texto = f"${pnl:+.2f}" if pnl is not None else "sem resultados simulados"
+        roi = dados["avg_roi_pct"]
+        roi_texto = f"{roi:+.1f}%" if roi is not None else "—"
+        mensagem = (
+            "RESUMO — ÚLTIMAS 24 HORAS\n"
+            f'Alertas registrados: {dados["total"]}\n'
+            f'Odds Value: {dados["odds_alerts"]}\n'
+            f'Apostas grandes: {dados["whale_alerts"]}\n'
+            f'Oscilações de preço: {dados["spike_alerts"]}\n'
+            f'Odds Value pendentes: {dados["odds_pending"]}\n'
+            f'Resultados encerrados: {dados["odds_wins"]} acertos / {dados["odds_losses"]} erros\n'
+            f'P&L hipotético: {pnl_texto} | ROI médio: {roi_texto}\n'
+            "Valores financeiros são simulações dos alertas, não operações executadas."
+        )
+        await enviar_mensagem(mensagem)
+
+    elif texto.startswith("/ranking"):
+        try:
+            partes = texto.split()
+            dias = int(partes[1]) if len(partes) > 1 else 30
+            ranking = get_sport_ranking(dias, min_samples=3)
+            linhas = [f"RANKING POR ESPORTE — ÚLTIMOS {dias} DIAS",
+                      "Base: alertas Odds Value resolvidos, mínimo de 3 resultados por esporte.", ""]
+            if not ranking:
+                linhas.append("Ainda não há amostra suficiente para montar um ranking confiável.")
+            else:
+                for indice, item in enumerate(ranking, 1):
+                    roi = item["avg_roi_pct"]
+                    pnl = item["simulated_pnl_usd"]
+                    taxa = item["win_rate"]
+                    linhas.append(
+                        f'{indice}. {item["sport"]} — ROI médio {roi:+.1f}% | '
+                        f'P&L hipotético ${pnl:+.2f} | acerto {taxa:.1f}% | {item["samples"]} resultados'
+                    )
+            linhas.extend(["", "O ranking é retrospectivo e simulado; não representa lucro real nem garante resultados futuros."])
+            await enviar_mensagem("\n".join(linhas))
+        except (ValueError, TypeError):
+            await enviar_mensagem("Use: /ranking ou /ranking 30")
+
     elif texto in ["/creditos", "/credits", "/quota"]:
         quota = get_quota_status()
         if quota["remaining"] is None:
@@ -305,6 +347,8 @@ async def processar_comando(texto):
             "/start - Ligar monitor\n"
             "/stop - Desligar monitor\n"
             "/status - Ver status\n"
+            "/resumo - Resumo das últimas 24 horas\\n"
+            "/ranking [dias] - Desempenho simulado por esporte\\n"
             "/creditos - Ver saldo da API de odds\\n"
             "/metrics - Ver desempenho dos alertas\n"
             "/setbet [valor] - Mudar filtro\n"
