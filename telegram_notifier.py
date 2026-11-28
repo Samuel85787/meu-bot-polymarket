@@ -79,7 +79,7 @@ async def fechar_notificador():
 async def send_alert(
     text: str,
     button_url: str | None = None,
-    button_label: str = "Abrir mercado",
+    button_label: str = "Abrir no Polymarket ↗",
 ) -> bool:
     """Send consistently styled, HTML-safe Telegram messages."""
     global _last_send_time
