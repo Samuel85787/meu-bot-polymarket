@@ -225,6 +225,29 @@ def formatar_perfil(perfil):
     return "\n".join(linhas)
 
 
+
+def formatar_ambiguidades_h2h(resultado, nome_a, nome_b):
+    linhas = ["A busca encontrou mais de uma possibilidade. Escolha usando o nome completo:"]
+    for rotulo, nome, status, candidatos in (
+        ("Jogador 1", nome_a, resultado.get("status_a"), resultado.get("player_a")),
+        ("Jogador 2", nome_b, resultado.get("status_b"), resultado.get("player_b")),
+    ):
+        if status != "ambiguous":
+            continue
+        linhas.append(f'{rotulo} — "{nome}":')
+        if isinstance(candidatos, list) and candidatos:
+            for candidato in candidatos[:5]:
+                if not isinstance(candidato, dict):
+                    continue
+                nome_candidato = candidato.get("name") or "Nome não informado"
+                pais = candidato.get("country_name") or candidato.get("country")
+                sufixo = f" ({pais})" if pais else ""
+                linhas.append(f"• {nome_candidato}{sufixo}")
+        else:
+            linhas.append("• Vários resultados, sem detalhes adicionais.")
+    return "\\n".join(linhas)
+
+
 def formatar_confronto(resultado):
     jogadores = resultado.get("players") or []
     resumo = resultado.get("summary") or {}
