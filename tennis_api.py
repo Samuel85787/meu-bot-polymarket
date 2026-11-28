@@ -396,7 +396,7 @@ def formatar_analise_matchup(analise, reference_prob=None, selected_player=None)
             if p_sel is not None:
                 diferenca = (p_sel - reference_prob) * 100
                 linhas.append(
-                    f"Distância Elo vs Pinnacle ({selected_player}): "
+                    f"Diferença Elo x probabilidade sem vig da Pinnacle ({selected_player}): "
                     f"{diferenca:+.1f} pontos percentuais"
                 )
     else:
