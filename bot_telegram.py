@@ -8,7 +8,7 @@ import aiohttp
 import config
 from clob_websocket import PolymarketMonitor
 from gamma_api import fetch_active_markets
-from odds_checker import check_arbitrage, get_quota_status
+from odds_checker import check_arbitrage, get_quota_status, atualizar_saldo_api
 from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
 from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest, get_period_metrics, get_sport_ranking)
@@ -257,7 +257,10 @@ async def processar_comando(texto):
             f"Spread máximo: {config.ODDS_MAX_SPREAD_PCT:.2f}%\\n"
             f"Slippage máximo: {config.ODDS_MAX_SLIPPAGE_PCT:.2f}%\\n"
             f"Liquidez mínima no melhor ask: ${config.ODDS_MIN_TOP_ASK_USD:.2f}\\n"
-            f"Cooldown Odds: {config.ODDS_COOLDOWN_SECONDS}s"
+            f"Cooldown Odds: {config.ODDS_COOLDOWN_SECONDS}s\\n"
+            f"Consulta de odds: a cada {config.ODDS_CHECK_INTERVAL / 3600:.1f} horas\\n"
+            f"Feeds por ciclo: {config.ODDS_API_MAX_FEEDS_PER_CYCLE}\\n"
+            f"Reserva de créditos: {config.ODDS_API_CREDITS_RESERVE}"
         )
 
     elif texto in ["/resumo", "/hoje"]:
@@ -303,7 +306,7 @@ async def processar_comando(texto):
             await enviar_mensagem("Use: /ranking ou /ranking 30")
 
     elif texto in ["/creditos", "/credits", "/quota"]:
-        quota = get_quota_status()
+        quota = await atualizar_saldo_api()
         if quota["remaining"] is None:
             mensagem = "CRÉDITOS DA API\nAinda não recebi o saldo da The Odds API. Ele será atualizado na próxima consulta gratuita de esportes."
         else:
