@@ -157,6 +157,59 @@ class TennisAutomaticAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(odds_checker._eh_pre_jogo({"commence_time": passado}))
 
 
+    async def test_qualified_prematch_nba_alert_includes_current_espn_context(self):
+        inicio = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
+        game = {
+            "id": "nba-match-1",
+            "home_team": "Dallas Mavericks",
+            "away_team": "Golden State Warriors",
+            "commence_time": inicio,
+        }
+        pinnacle_market = {
+            "outcomes": [
+                {"name": "Dallas Mavericks", "price": 1.75},
+                {"name": "Golden State Warriors", "price": 2.20},
+            ]
+        }
+        pm_market = {
+            "_sport": "NBA",
+            "conditionId": "nba-condition-1",
+            "question": "Dallas Mavericks vs Golden State Warriors",
+            "outcomes": ["Yes", "No"],
+            "clobTokenIds": ["yes-token", "no-token"],
+            "feesEnabled": False,
+        }
+        fake_ev = {
+            "net_ev_pct": 9.0, "stake_usd": 50, "average_price": 0.5,
+            "best_bid": 0.49, "best_ask": 0.5, "spread_pct": 2,
+            "slippage_pct": 0, "fee_usd": 0, "gross_shares": 100,
+            "net_shares": 100, "net_profit_usd": 4.5,
+            "top_ask_depth_usd": 100, "book_age_seconds": 1,
+        }
+        analysis = {
+            "status": "ok", "sport": "NBA", "season": "2026-27",
+            "home": {"name": "Dallas Mavericks", "record": {}},
+            "away": {"name": "Golden State Warriors", "record": {}},
+            "h2h": {"wins_home": 1, "wins_away": 0, "total": 1, "recent": []},
+            "updated_at": "17:00",
+        }
+        with patch.object(odds_checker, "_estimate_market_ev",
+                          new=AsyncMock(side_effect=[fake_ev, None])), \
+             patch.object(odds_checker, "analisar_confronto",
+                          new=AsyncMock(return_value=analysis)) as analisar, \
+             patch.object(odds_checker, "send_arbitrage_alert",
+                          new=AsyncMock(return_value=True)) as send:
+            await check_outcomes(
+                game, pinnacle_market, pm_market,
+                "Dallas Mavericks", "Golden State Warriors", session=object(),
+            )
+
+        analisar.assert_awaited_once_with(
+            "NBA", "Dallas Mavericks", "Golden State Warriors"
+        )
+        self.assertEqual(send.await_args.kwargs["sports_analysis"]["season"], "2026-27")
+
+
 class OddsMatchingTests(unittest.TestCase):
     def test_normalizes_accents_and_punctuation(self):
         self.assertEqual(normalize_team_name("São Paulo FC!"), "sao paulo fc")
