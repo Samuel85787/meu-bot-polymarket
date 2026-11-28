@@ -245,7 +245,7 @@ def formatar_ambiguidades_h2h(resultado, nome_a, nome_b):
                 linhas.append(f"• {nome_candidato}{sufixo}")
         else:
             linhas.append("• Vários resultados, sem detalhes adicionais.")
-    return "\\n".join(linhas)
+    return "\n".join(linhas)
 
 
 def formatar_confronto(resultado):
