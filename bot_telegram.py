@@ -504,10 +504,34 @@ async def processar_comando(texto):
             "/setbet 100  •  valor mínimo\n"
             "/setspike 15  •  oscilação mínima em %\n"
             "/setwhale  •  ligar/desligar alertas de baleias\n\n"
+            "/previa  •  ver exemplos visuais dos alertas\n\n"
             "💡 DICA: use o botão Menu do Telegram para encontrar os comandos."
         )
         await enviar_mensagem(msg)
 
+    elif texto in ["/previa", "/preview"]:
+        mensagem = (
+            "👁️ PRÉVIA VISUAL  ·  DEMONSTRAÇÃO"
+            "\n━━━━━━━━━━━━━━━━━━━━\n"
+            "📈 PREÇO EM MOVIMENTO  ·  ▲ SUBIU\n"
+            "Celtics x Bucks  ·  NBA\n"
+            "🎯 Boston Celtics\n"
+            "$0.143 → $0.160  (+12.3%)\n"
+            "Retorno bruto se vencer: 6.99x → 6.25x\n"
+            "💧 Liquidez: $11,345\n\n"
+            "🐋 ORDEM DE GRANDE VOLUME\n"
+            "Thunder x Bucks  ·  NBA\n"
+            "🟢 COMPRA  ·  Thunder\n"
+            "Ordem: $1,680  ·  preço: $0.840\n"
+            "Retorno bruto: 1.19x\n"
+            "Fluxo 30 min: compras $1,978 (3) · vendas $0 (0)\n\n"
+            "🎯 OPORTUNIDADE DE VALOR  ·  EXEMPLO\n"
+            "Pinnacle: 1.50  ·  prob. sem vig: 66.7%\n"
+            "Polymarket: 0.500  ·  retorno bruto: 2.00x\n"
+            "EV líquido: +8.5%  ·  stake: $50.00\n\n"
+            "ⓘ Valores fictícios apenas para demonstrar o layout. Nenhum sinal real foi gerado ou salvo."
+        )
+        await enviar_mensagem(mensagem)
     elif texto == "/status":
         estado = "🟢 ATIVO" if monitor_ativo else "⏸️ PAUSADO"
         diagnostico = format_status(monitor_active=monitor_ativo)
