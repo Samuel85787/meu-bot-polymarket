@@ -124,6 +124,26 @@ def split_message(text, max_chars=MAX_RAW_CHUNK):
     return chunks or [""]
 
 
+
+def render_chunks(text, max_html_chars=3800):
+    """Return HTML-safe chunks that stay below Telegram's 4096-character limit."""
+    pending = split_message(text)
+    rendered = []
+    while pending:
+        raw = pending.pop(0)
+        html_text = render_message(raw, first_chunk=(not rendered))
+        if len(html_text) <= max_html_chars:
+            rendered.append(html_text)
+            continue
+        target = max(200, int(len(raw) * max_html_chars / max(len(html_text), 1) * 0.8))
+        pieces = split_message(raw, max_chars=target)
+        if len(pieces) < 2:
+            midpoint = max(1, len(raw) // 2)
+            pieces = [raw[:midpoint], raw[midpoint:]]
+        pending = pieces + pending
+    return rendered or [""]
+
+
 def keyboard_url(url, label="Abrir mercado"):
     candidate, _ = _safe_url(str(url or ""))
     if not candidate:
