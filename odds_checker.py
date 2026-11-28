@@ -834,12 +834,12 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             f"Pinnacle (odd decimal): {odd_decimal}  ·  Prob. sem vig: {fair_prob * 100:.1f}%",
             f"Polymarket: preço {contrato:.3f}"
             + (f"  ·  retorno bruto {retorno_contrato}" if retorno_contrato else ""),
-            f"💰 EV líquido: {ev_data['net_ev_pct']:+.1f}%  ·  Stake: \${ev_data['stake_usd']:.2f}",
-            f"Lucro esperado: \${ev_data['net_profit_usd']:+.2f}",
+            f"💰 EV líquido: {ev_data['net_ev_pct']:+.1f}%  ·  Stake: ${ev_data['stake_usd']:.2f}",
+            f"Lucro esperado: ${ev_data['net_profit_usd']:+.2f}",
             "",
             f"🧭 Execução: {qualidade['label']} ({qualidade['score']}/{qualidade['max_score']})",
             f"Spread {ev_data.get('spread_pct', 0):.2f}%  ·  Slippage {ev_data.get('slippage_pct', 0):.2f}%",
-            f"Taxas \${ev_data.get('fee_usd', 0):.2f}  ·  Profundidade \${ev_data.get('top_ask_depth_usd', 0):,.0f}",
+            f"Taxas ${ev_data.get('fee_usd', 0):.2f}  ·  Profundidade ${ev_data.get('top_ask_depth_usd', 0):,.0f}",
         ]
         if placar:
             linhas.insert(4, f"⏱️ {placar}")
