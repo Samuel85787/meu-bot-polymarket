@@ -236,7 +236,7 @@ async def processar_comando(texto):
                 f"P&L simulado: ${dados['pnl_usd']:+.2f}" if dados["pnl_usd"] is not None else "P&L simulado: sem amostra",
                 f"ROI médio: {dados['avg_roi_pct']:+.2f}%" if dados["avg_roi_pct"] is not None else "ROI médio: —",
             ]
-            await enviar_mensagem("\\n".join(linhas))
+            await enviar_mensagem("\n".join(linhas))
 
     elif texto in ["/top", "/worst"]:
         melhores = texto == "/top"
@@ -252,19 +252,19 @@ async def processar_comando(texto):
             )
         if not alertas:
             linhas.append("Ainda não há alertas Odds Value registrados.")
-        await enviar_mensagem("\\n".join(linhas))
+        await enviar_mensagem("\n".join(linhas))
 
     elif texto == "/config":
         await enviar_mensagem(
-            "CONFIGURAÇÃO ATUAL\\n"
-            f"EV mínimo: {config.ODDS_EDGE_THRESHOLD * 100:.2f}%\\n"
-            f"Stake simulada: ${config.ODDS_ESTIMATED_STAKE_USD:.2f}\\n"
-            f"Spread máximo: {config.ODDS_MAX_SPREAD_PCT:.2f}%\\n"
-            f"Slippage máximo: {config.ODDS_MAX_SLIPPAGE_PCT:.2f}%\\n"
-            f"Liquidez mínima no melhor ask: ${config.ODDS_MIN_TOP_ASK_USD:.2f}\\n"
-            f"Cooldown Odds: {config.ODDS_COOLDOWN_SECONDS}s\\n"
-            f"Consulta de odds: a cada {config.ODDS_CHECK_INTERVAL / 3600:.1f} horas\\n"
-            f"Feeds por ciclo: {config.ODDS_API_MAX_FEEDS_PER_CYCLE}\\n"
+            "CONFIGURAÇÃO ATUAL\n"
+            f"EV mínimo: {config.ODDS_EDGE_THRESHOLD * 100:.2f}%\n"
+            f"Stake simulada: ${config.ODDS_ESTIMATED_STAKE_USD:.2f}\n"
+            f"Spread máximo: {config.ODDS_MAX_SPREAD_PCT:.2f}%\n"
+            f"Slippage máximo: {config.ODDS_MAX_SLIPPAGE_PCT:.2f}%\n"
+            f"Liquidez mínima no melhor ask: ${config.ODDS_MIN_TOP_ASK_USD:.2f}\n"
+            f"Cooldown Odds: {config.ODDS_COOLDOWN_SECONDS}s\n"
+            f"Consulta de odds: a cada {config.ODDS_CHECK_INTERVAL / 3600:.1f} horas\n"
+            f"Feeds por ciclo: {config.ODDS_API_MAX_FEEDS_PER_CYCLE}\n"
             f"Reserva de créditos: {config.ODDS_API_CREDITS_RESERVE}"
         )
 
@@ -281,7 +281,7 @@ async def processar_comando(texto):
             f'Apostas grandes: {dados["whale_alerts"]}\n'
             f'Oscilações de preço: {dados["spike_alerts"]}\n'
             f'Odds Value pendentes: {dados["odds_pending"]}\n'
-            f'Resultados encerrados: {dados["odds_wins"]} acertos / {dados["odds_losses"]} erros / {dados["odds_draws"]} empates\\n'
+            f'Resultados encerrados: {dados["odds_wins"]} acertos / {dados["odds_losses"]} erros / {dados["odds_draws"]} empates\n'
             f'P&L hipotético: {pnl_texto} | ROI médio: {roi_texto}\n'
             "Valores financeiros são simulações dos alertas, não operações executadas."
         )
@@ -569,7 +569,8 @@ async def processar_comando(texto):
         await enviar_mensagem(f"Alertas de baleia: {estado}")
 
     else:
-        await enviar_mensagem("Comando desconhecido. /status para ajuda")
+        await enviar_mensagem("Comando não reconhecido.
+Digite /ajuda para ver os comandos disponíveis.")
 
 
 async def iniciar_monitor():
