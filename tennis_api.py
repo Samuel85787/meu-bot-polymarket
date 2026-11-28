@@ -222,7 +222,7 @@ def formatar_perfil(perfil):
         "Dados estatísticos descritivos; Elo e retrospecto não são garantia nem previsão de resultado.",
         "Atualização da base: diária; não é feed ponto a ponto ao vivo.",
     ])
-    return "\\n".join(linhas)
+    return "\n".join(linhas)
 
 
 def formatar_confronto(resultado):
