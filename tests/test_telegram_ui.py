@@ -1,7 +1,7 @@
 import html
 import unittest
 
-from telegram_ui import keyboard_url, render_message, split_message
+from telegram_ui import keyboard_url, render_chunks, render_message, split_message
 
 
 class TelegramUiTests(unittest.TestCase):
@@ -33,6 +33,11 @@ class TelegramUiTests(unittest.TestCase):
     def test_keyboard_label_is_limited(self):
         markup = keyboard_url("https://polymarket.com", "A" * 100)
         self.assertEqual(len(markup["inline_keyboard"][0][0]["text"]), 64)
+
+    def test_render_chunks_respect_telegram_html_limit(self):
+        chunks = render_chunks("<" * 12000, max_html_chars=3800)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk) <= 3800 for chunk in chunks))
 
     def test_long_messages_are_split_under_safe_raw_limit(self):
         message = "\n".join([f"line {i}" for i in range(1200)])
