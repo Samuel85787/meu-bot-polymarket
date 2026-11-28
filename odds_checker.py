@@ -16,6 +16,7 @@ from health_status import set_service
 from signal_quality import classificar_qualidade_odds
 from sports_score_checker import obter_placar_mercado
 from tennis_api import AcesAPIError, analisar_matchup, formatar_analise_matchup
+from api_sports import SportsAPIError, analisar_confronto, formatar_analise as formatar_analise_sports
 
 logger = logging.getLogger(__name__)
 
@@ -702,9 +703,26 @@ async def check_outcomes(game, pinnacle_market, pm_market, home_team, away_team,
             except Exception as exc:
                 logger.warning("Falha na análise pré-jogo de tênis: %s", type(exc).__name__)
 
+        analise_sports = None
+        sport_api = esporte.upper()
+        if sport_api in ("NBA", "NFL") and _eh_pre_jogo(game):
+            try:
+                analise_sports = await analisar_confronto(sport_api, home_team, away_team)
+                if analise_sports.get("status") != "ok":
+                    logger.info(
+                        "Análise API-SPORTS não concluiu para %s x %s: %s",
+                        home_team, away_team, analise_sports.get("status"),
+                    )
+                    analise_sports = None
+            except SportsAPIError as exc:
+                logger.warning("API-SPORTS indisponível para análise %s: %s", sport_api, exc)
+            except Exception as exc:
+                logger.warning("Falha na análise API-SPORTS (%s): %s", sport_api, type(exc).__name__)
+
         enviado = await send_arbitrage_alert(
             game, info, info["odds"], fair_prob, ev_data, pm_market, token_id,
             tennis_analysis=analise_tenis,
+            sports_analysis=analise_sports,
         )
         if enviado:
             _last_odds_alert[key] = now
@@ -737,7 +755,7 @@ def find_pm_price(pm_market, target_side, yes_side, home_team, away_team):
     return None
 
 
-async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm_market, token_id=None, tennis_analysis=None):
+async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm_market, token_id=None, tennis_analysis=None, sports_analysis=None):
     try:
         slug = pm_market.get("slug")
         link = (
@@ -764,6 +782,9 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
                     selected_player=tennis_analysis.get("selected_player"),
                 ) + "\n"
             )
+        sports_analysis_text = ""
+        if sports_analysis and sports_analysis.get("status") == "ok":
+            sports_analysis_text = "\n\n" + formatar_analise_sports(sports_analysis) + "\n"
         message = (
             "🎯 OPORTUNIDADE ENCONTRADA\n\n"
             f"🏟️ {game.get('home_team', '')} x {game.get('away_team', '')}\n"
@@ -777,6 +798,7 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             f"🧭 Condições de preço e liquidez: {qualidade['label']} "
             f"({qualidade['score']}/{qualidade['max_score']})\n"
             f"{tennis_analysis_text}"
+            f"{sports_analysis_text}"
             "⚠️ Classificação baseada nas condições atuais de preço e liquidez; "
             "não prevê o resultado nem garante lucro.\n"
             f"🔗 Ver mercado: {link}"
@@ -794,7 +816,8 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
                          "net_shares": ev_data["net_shares"],
                          "quality_label": qualidade["label"],
                          "quality_score": qualidade["score"],
-                         "tennis_analysis_included": bool(tennis_analysis)},
+                         "tennis_analysis_included": bool(tennis_analysis),
+                         "sports_analysis_included": bool(sports_analysis)},
             )
             logger.info("Oportunidade Odds Value enviada: %s", info["name"])
         else:
