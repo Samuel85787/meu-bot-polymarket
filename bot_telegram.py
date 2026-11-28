@@ -374,7 +374,7 @@ async def processar_comando(texto):
             agenda = await listar_jogos(sport, data)
             await enviar_mensagem(formatar_jogos(agenda))
         except SportsDataError as exc:
-            await enviar_mensagem(f"API-SPORTS: {exc}")
+            await enviar_mensagem(f"📡 ESPN: {exc}")
 
     elif texto.startswith("/nba") or texto.startswith("/nfl"):
         sport = "NBA" if texto.startswith("/nba") else "NFL"
