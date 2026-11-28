@@ -456,17 +456,29 @@ async def update_resolutions(limit=100):
                 final_price = _finite_or_none(final_price)
                 if final_price is None or not 0 <= final_price <= 1:
                     continue
-                won = 1 if final_price >= 0.99 else (0 if final_price <= 0.01 else None)
+                # Só aceita liquidação final binária ou o empate 50/50 conhecido;
+                # outros preços intermediários podem ser estados não definitivos.
+                if final_price >= 0.99:
+                    settlement_value = 1.0
+                    won = 1
+                elif final_price <= 0.01:
+                    settlement_value = 0.0
+                    won = 0
+                elif 0.49 <= final_price <= 0.51:
+                    settlement_value = 0.5
+                    won = None
+                else:
+                    continue
                 pnl, roi = simulated_result(
                     row["alert_type"], row["entry_price"], row["stake_usd"],
-                    row["details"], final_price,
+                    row["details"], settlement_value,
                 )
                 with _connection() as db:
                     cursor = db.execute(
                         """UPDATE alerts
                            SET resolved_at = ?, won = ?, settlement_value = ?, pnl_usd = ?, roi_pct = ?
                            WHERE id = ? AND resolved_at IS NULL""",
-                        (time.time(), won, final_price, pnl, roi, row["id"]),
+                        (time.time(), won, settlement_value, pnl, roi, row["id"]),
                     )
                     resolved += cursor.rowcount
             except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, TypeError, OSError) as exc:
