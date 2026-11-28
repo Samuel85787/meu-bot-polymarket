@@ -54,6 +54,22 @@ class TennisApiTests(unittest.TestCase):
         self.assertIn("Rival", texto)
         self.assertIn("Dados estatísticos descritivos", texto)
 
+    def test_ambiguidades_h2h_mostra_nome_e_pais_dos_candidatos(self):
+        resultado = {
+            "status_a": "ambiguous",
+            "player_a": [
+                {"name": "Jannik Sinner", "country": "Italy"},
+                {"name": "Other Sinner", "country": "Germany"},
+            ],
+            "status_b": "ok",
+            "player_b": {"name": "Alexander Zverev"},
+        }
+        texto = tennis_api.formatar_ambiguidades_h2h(resultado, "sinner", "zverev")
+        self.assertIn("Jogador 1", texto)
+        self.assertIn("Jannik Sinner (Italy)", texto)
+        self.assertIn("Other Sinner (Germany)", texto)
+        self.assertNotIn("Jogador 2", texto)
+
     def test_h2h_formata_vitorias_por_superficie(self):
         resultado = {
             "players": [
