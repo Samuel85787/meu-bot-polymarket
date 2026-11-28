@@ -63,6 +63,11 @@ def _format_line(line, first=False):
             link = f'<a href="{esc(url)}">Abrir link ↗</a>'
             return f"{before}{link}{esc(trailing)}{after}"
 
+    command = re.match(r"^(\\s*)(/[a-z0-9_]+)(\\s+.*)?$", line, re.IGNORECASE)
+    if command:
+        indent, name, rest = command.groups()
+        return f"{esc(indent)}<code>{esc(name)}</code>{esc(rest or '')}"
+
     label = _LABEL_RE.match(line)
     if label:
         indent, key, colon, spacing, value = label.groups()
