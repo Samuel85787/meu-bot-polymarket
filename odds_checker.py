@@ -23,6 +23,57 @@ SPORT_CACHE_SECONDS = 21600
 _sports_cache = []
 _sports_cache_at = 0.0
 _last_odds_alert = {}
+_quota_used = None
+_quota_remaining = None
+_quota_last = None
+_quota_checked_at = None
+
+
+def atualizar_quota(headers):
+    """Lê os cabeçalhos oficiais de consumo da The Odds API."""
+    global _quota_used, _quota_remaining, _quota_last, _quota_checked_at
+    try:
+        used = headers.get("x-requests-used")
+        remaining = headers.get("x-requests-remaining")
+        last = headers.get("x-requests-last")
+        if used is not None:
+            _quota_used = max(0, int(used))
+        if remaining is not None:
+            _quota_remaining = max(0, int(remaining))
+        if last is not None:
+            _quota_last = max(0, int(last))
+        if used is not None or remaining is not None or last is not None:
+            _quota_checked_at = time.time()
+            reserve = config.ODDS_API_CREDITS_RESERVE
+            estado = "warning" if _quota_remaining is not None and _quota_remaining <= reserve else "ok"
+            resumo = (
+                f"{_quota_used if _quota_used is not None else '—'} usados | "
+                f"{_quota_remaining if _quota_remaining is not None else '—'} restantes"
+            )
+            set_service("odds_api_quota", estado, resumo)
+    except (TypeError, ValueError, AttributeError):
+        logger.debug("Cabeçalhos de quota da Odds API ausentes ou inválidos")
+
+
+def get_quota_status():
+    total = (
+        _quota_used + _quota_remaining
+        if _quota_used is not None and _quota_remaining is not None
+        else None
+    )
+    paused = (
+        _quota_remaining is not None
+        and _quota_remaining <= config.ODDS_API_CREDITS_RESERVE
+    )
+    return {
+        "used": _quota_used,
+        "remaining": _quota_remaining,
+        "last_cost": _quota_last,
+        "total": total,
+        "checked_at": _quota_checked_at,
+        "reserve": config.ODDS_API_CREDITS_RESERVE,
+        "paused": paused,
+    }
 
 
 def normalize_team_name(name):
@@ -55,13 +106,13 @@ async def discover_supported_sports(session):
     """Descobre os sport keys efetivamente disponibilizados pela conta da Odds API."""
     global _sports_cache, _sports_cache_at
     now = time.monotonic()
-    if _sports_cache and now - _sports_cache_at < SPORT_CACHE_SECONDS:
-        return list(_sports_cache)
 
+    # /sports é gratuito na The Odds API; consultá-lo em cada ciclo atualiza o saldo.
     url = f"{ODDS_API_BASE}/sports/"
     params = {"apiKey": config.ODDS_API_KEY, "all": "true"}
     try:
         async with session.get(url, params=params) as resp:
+            atualizar_quota(resp.headers)
             if resp.status != 200:
                 set_service("odds_api", "error", f"sports HTTP {resp.status}")
                 logger.warning("Odds API sports discovery: HTTP %s", resp.status)
@@ -254,9 +305,16 @@ async def check_arbitrage(pm_markets=None):
             logger.warning("Nenhum esporte suportado disponível na Odds API nesta conta")
             return
         for sport_key, sport_name in sports:
+            quota = get_quota_status()
+            if quota["paused"]:
+                logger.warning(
+                    "Consultas de odds pausadas: %s créditos restantes; reserva mínima %s",
+                    quota["remaining"], quota["reserve"],
+                )
+                set_service("odds_api", "warning", f"consultas pausadas; {quota['remaining']} créditos restantes")
+                break
             try:
-                await check_sport_arbitrage(session, sport_key, sport_name, pm_markets or [])
-            except asyncio.CancelledError:
+                await check_sport_arbitrage(session, sport_key, sport_name, pm_markets or [])            except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logger.error("Erro em %s: %s", sport_name, type(exc).__name__)
@@ -273,6 +331,7 @@ async def check_sport_arbitrage(session, sport_key, sport_name, pm_markets):
     }
     try:
         async with session.get(url, params=params) as resp:
+            atualizar_quota(resp.headers)
             if resp.status != 200:
                 set_service("odds_api", "error", f"{sport_name}: HTTP {resp.status}")
                 logger.warning("Odds API %s: HTTP %s", sport_name, resp.status)
