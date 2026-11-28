@@ -370,7 +370,7 @@ async def processar_comando(texto):
             argumentos = argumentos[4:].strip()
         elif argumentos.startswith("atp "):
             argumentos = argumentos[4:].strip()
-        confronto = re.split(r"\\s+(?:vs|x)\\s+", argumentos, maxsplit=1)
+        confronto = re.split(r"\s+(?:vs|x)\s+ ", argumentos, maxsplit=1)
         if len(confronto) != 2 or not all(confronto):
             await enviar_mensagem("Use: /h2h [wta] jogador 1 vs jogador 2. Ex.: /h2h sinner vs alcaraz")
         else:
@@ -417,6 +417,8 @@ async def processar_comando(texto):
             "/ranking [dias] - Desempenho simulado por esporte\\n"
             "/creditos - Ver saldo da API de odds\\n"
             "/metrics - Ver desempenho dos alertas\n"
+            "/tenis [atp|wta] nome - Perfil e estatísticas de tênis\n"
+            "/h2h [wta] jogador 1 vs jogador 2 - Confronto direto\n"
             "/setbet [valor] - Mudar filtro\n"
             "/setspike [ex: 0.15 ou 15] - Mudar oscilacao\n"
             "/setwhale - Ligar/Desligar baleias"
