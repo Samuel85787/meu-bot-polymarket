@@ -14,7 +14,7 @@ from sports_score_checker import conectar_sports_ws
 from telegram_notifier import fechar_notificador, iniciar_notificador, send_alert
 from alert_history import (initialize as inicializar_historico, get_metrics, update_resolutions, get_sport_metrics, get_extreme_alerts, replay_backtest, get_period_metrics, get_sport_ranking)
 from health_status import set_service, format_status
-from tennis_api import (AcesAPIError, buscar_perfil, buscar_confronto, formatar_perfil, formatar_confronto, formatar_ambiguidades_h2h)
+from tennis_api import (AcesAPIError, buscar_perfil, buscar_confronto, analisar_matchup, formatar_perfil, formatar_confronto, formatar_analise_matchup, formatar_ambiguidades_h2h)
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +362,52 @@ async def processar_comando(texto):
                 except AcesAPIError as exc:
                     await enviar_mensagem(f"Consulta AcesAPI: {exc}")
 
+    elif texto.startswith("/prejogo") or texto.startswith("/analise"):
+        argumentos = texto.split(maxsplit=1)[1].strip() if len(texto.split(maxsplit=1)) > 1 else ""
+        liga = "tennis"
+        if argumentos.startswith("wta "):
+            liga = "wta"
+            argumentos = argumentos[4:].strip()
+        elif argumentos.startswith("atp "):
+            argumentos = argumentos[4:].strip()
+
+        superficie = None
+        piso_match = re.search(r"\s+(hard|hardcourt|clay|saibro|grass|grama|carpet)\s*$", argumentos)
+        if piso_match:
+            piso = piso_match.group(1)
+            superficie = {
+                "hard": "hard", "hardcourt": "hard", "clay": "clay",
+                "saibro": "clay", "grass": "grass", "grama": "grass",
+                "carpet": "carpet",
+            }[piso]
+            argumentos = argumentos[:piso_match.start()].strip()
+
+        confronto = re.split(r"\s+(?:vs|x)\s+", argumentos, maxsplit=1)
+        if len(confronto) != 2 or not all(confronto):
+            await enviar_mensagem(
+                "Use: /prejogo [atp|wta] jogador 1 vs jogador 2 [hard|clay|grass]. "
+                "Ex.: /prejogo atp sinner vs zverev hard"
+            )
+        else:
+            try:
+                resultado = await analisar_matchup(
+                    confronto[0], confronto[1], league=liga, surface=superficie
+                )
+                if resultado.get("status") == "ambiguous":
+                    await enviar_mensagem(
+                        formatar_ambiguidades_h2h(resultado, confronto[0], confronto[1])
+                    )
+                elif resultado.get("status") == "same_player":
+                    await enviar_mensagem("Os nomes foram identificados como o mesmo jogador.")
+                elif resultado.get("status") != "ok":
+                    await enviar_mensagem(
+                        "Não consegui identificar os dois jogadores. Use nomes completos e indique ATP ou WTA."
+                    )
+                else:
+                    await enviar_mensagem(formatar_analise_matchup(resultado))
+            except AcesAPIError as exc:
+                await enviar_mensagem(f"Consulta AcesAPI: {exc}")
+
     elif texto.startswith("/h2h"):
         argumentos = texto[len("/h2h"):].strip()
         liga = "tennis"
@@ -419,6 +465,7 @@ async def processar_comando(texto):
             "/metrics - Ver desempenho dos alertas\n"
             "/tenis [atp|wta] nome - Perfil e estatísticas de tênis\n"
             "/h2h [wta] jogador 1 vs jogador 2 - Confronto direto\n"
+            "/prejogo [atp|wta] jogador 1 vs jogador 2 [piso] - Análise de matchup\n"
             "/setbet [valor] - Mudar filtro\n"
             "/setspike [ex: 0.15 ou 15] - Mudar oscilacao\n"
             "/setwhale - Ligar/Desligar baleias"
