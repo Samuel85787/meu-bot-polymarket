@@ -473,8 +473,43 @@ async def processar_comando(texto):
             except AcesAPIError as exc:
                 await enviar_mensagem(f"Consulta AcesAPI: {exc}")
 
-    elif texto in ["/status", "/help", "/ajuda"]:
-        estado = "Ligado" if monitor_ativo else "Desligado"
+    elif texto in ["/help", "/ajuda"]:
+        msg = (
+            "🤖 CENTRAL DE COMANDOS\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🎛️ CONTROLE DO BOT\n"
+            "/start  •  ligar o monitor\n"
+            "/stop  •  pausar o monitor\n"
+            "/status  •  saúde e configurações\n\n"
+            "🏀 NBA  &  🏈 NFL\n"
+            "/nba equipe 1 vs equipe 2\n"
+            "/nfl equipe 1 vs equipe 2\n"
+            "/jogosnba [AAAA-MM-DD]  •  agenda\n"
+            "/jogosnfl [AAAA-MM-DD]  •  agenda\n"
+            "/sportsquota  •  status da fonte de dados\n\n"
+            "🎾 TÊNIS\n"
+            "/tenis atp sinner  •  perfil\n"
+            "/tenis wta iga swiatek  •  perfil\n"
+            "/h2h sinner vs zverev  •  confronto direto\n"
+            "/prejogo atp sinner vs zverev hard  •  análise\n\n"
+            "📊 DESEMPENHO E HISTÓRICO\n"
+            "/resumo  •  últimas 24 horas\n"
+            "/metrics  •  métricas e P&L simulado\n"
+            "/ranking [dias]  •  ranking por esporte\n"
+            "/sport NBA  •  desempenho de um esporte\n"
+            "/backtest [stake] [EV%] [esporte]\n"
+            "/top  ou  /worst  •  melhores/piores EV\n\n"
+            "⚙️ CONFIGURAÇÕES\n"
+            "/config  •  filtros atuais\n"
+            "/setbet 100  •  valor mínimo\n"
+            "/setspike 15  •  oscilação mínima em %\n"
+            "/setwhale  •  ligar/desligar alertas de baleias\n\n"
+            "💡 DICA: use o botão Menu do Telegram para encontrar os comandos."
+        )
+        await enviar_mensagem(msg)
+
+    elif texto == "/status":
+        estado = "🟢 Ligado" if monitor_ativo else "⏸️ Desligado"
         diagnostico = format_status()
         baleias = "Ligado" if config.ENABLE_WHALE_ALERTS else "Desligado"
         mercados = monitor_instance.markets if monitor_instance else []
@@ -483,37 +518,22 @@ async def processar_comando(texto):
             esporte = mercado.get("_sport")
             if esporte in contagem:
                 contagem[esporte] += 1
-        resumo_esportes = "\\n".join(
-            f"{esporte}: {quantidade}" for esporte, quantidade in contagem.items()
+        resumo_esportes = "\n".join(
+            f"• {esporte}: {quantidade}" for esporte, quantidade in contagem.items()
         )
-
         msg = (
-            f"Status do Bot: {estado}\n"
-            f"Mercados monitorados: {len(mercados)}\n"
-            f"\nSAÚDE DOS SERVIÇOS\n{diagnostico}\n\n"
-            f"Filtro de Aposta: ${config.MIN_BET_AMOUNT}\n"
-            f"Filtro de Oscilacao: {round(config.PRICE_SPIKE_THRESHOLD * 100, 2)}%\n"
-            f"Alertas de Baleias: {baleias}\n"
-            f"Mercados por esporte:\n{resumo_esportes}\n\n"
-            "Comandos:\\n"
-            "/start - Ligar monitor\n"
-            "/stop - Desligar monitor\n"
-            "/status - Ver status\n"
-            "/resumo - Resumo das últimas 24 horas\\n"
-            "/ranking [dias] - Desempenho simulado por esporte\\n"
-            "/creditos - Ver saldo da API de odds\\n"
-            "/metrics - Ver desempenho dos alertas\n"
-            "/tenis [atp|wta] nome - Perfil e estatísticas de tênis\n"
-            "/h2h [wta] jogador 1 vs jogador 2 - Confronto direto\n"
-            "/prejogo [atp|wta] jogador 1 vs jogador 2 [piso] - Análise de matchup\n"
-            "/nba equipe 1 vs equipe 2 - Análise pré-jogo NBA\n"
-            "/nfl equipe 1 vs equipe 2 - Análise pré-jogo NFL\n"
-            "/jogosnba [AAAA-MM-DD] - Agenda da NBA\n"
-            "/jogosnfl [AAAA-MM-DD] - Agenda da NFL\n"
-            "/sportsquota - Consumo diário das APIs NBA/NFL\n"
-            "/setbet [valor] - Mudar filtro\n"
-            "/setspike [ex: 0.15 ou 15] - Mudar oscilacao\n"
-            "/setwhale - Ligar/Desligar baleias"
+            "🩺 STATUS DO BOT\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"Monitor: {estado}\n"
+            f"Mercados acompanhados: {len(mercados)}\n"
+            f"Filtro mínimo: \${config.MIN_BET_AMOUNT:.2f}\n"
+            f"Oscilação mínima: {config.PRICE_SPIKE_THRESHOLD * 100:.1f}%\n"
+            f"Alertas de baleias: {baleias}\n\n"
+            "📡 SAÚDE DOS SERVIÇOS\n"
+            f"{diagnostico}\n\n"
+            "🧭 MERCADOS POR ESPORTE\n"
+            f"{resumo_esportes}\n\n"
+            "Consulte /ajuda para ver todos os comandos."
         )
         await enviar_mensagem(msg)
 
