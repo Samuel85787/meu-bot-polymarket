@@ -6,6 +6,7 @@ Consultas são armazenadas em cache para preservar os créditos do plano gratuit
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 import unicodedata
 
 import aiohttp
@@ -15,7 +16,7 @@ from acesapi_config import API_KEY
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://mcp.acesapi.com/v1"
-CACHE_TTL_SECONDS = 6 * 60 * 60
+CACHE_TTL_SECONDS = 24 * 60 * 60
 _cache = {}
 
 
@@ -154,6 +155,291 @@ async def buscar_confronto(nome_a, nome_b, league="tennis"):
     resultado["status"] = "ok"
     resultado["league"] = league
     return resultado
+
+
+
+SUPERFICIES = {
+    "hard": "Quadra rápida",
+    "clay": "Saibro",
+    "grass": "Grama",
+    "carpet": "Carpete",
+}
+
+
+def _numero_seguro(valor):
+    try:
+        numero = float(valor)
+        return numero if numero == numero and abs(numero) != float("inf") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def probabilidade_elo(rating_a, rating_b):
+    """Probabilidade teórica padrão derivada da diferença Elo, não calibrada."""
+    a, b = _numero_seguro(rating_a), _numero_seguro(rating_b)
+    if a is None or b is None:
+        return None
+    expoente = max(-20.0, min(20.0, (b - a) / 400.0))
+    return 1.0 / (1.0 + 10.0 ** expoente)
+
+
+def _registro_superficie(perfil, superficie):
+    for item in perfil.get("by_surface") or []:
+        if isinstance(item, dict) and item.get("surface") == superficie:
+            return item
+    return {}
+
+
+def _forma_recente(perfil, quantidade=5):
+    jogador = perfil.get("player") or {}
+    player_id = str(jogador.get("player_id") or "")
+    partidas = [
+        item for item in (perfil.get("recent_matches") or [])
+        if isinstance(item, dict) and item.get("winner_id")
+    ]
+    partidas.sort(key=lambda item: str(item.get("match_date") or ""), reverse=True)
+    partidas = partidas[:quantidade]
+    vitorias = sum(1 for item in partidas if str(item.get("winner_id")) == player_id)
+    derrotas = len(partidas) - vitorias
+    ultima = partidas[0].get("match_date") if partidas else None
+    return {
+        "matches": len(partidas),
+        "wins": vitorias,
+        "losses": derrotas,
+        "win_pct": vitorias / len(partidas) if partidas else None,
+        "last_match": ultima,
+    }
+
+
+def _data_elo(rating):
+    valor = rating.get("as_of")
+    if not valor:
+        return None, None
+    try:
+        data = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
+        if data.tzinfo is None:
+            data = data.replace(tzinfo=timezone.utc)
+        data = data.astimezone(timezone.utc)
+        idade = max(0, (datetime.now(timezone.utc).date() - data.date()).days)
+        return data.date().isoformat(), idade
+    except (TypeError, ValueError):
+        return None, None
+
+
+async def analisar_matchup(nome_a, nome_b, league="tennis", surface=None):
+    """Analisa Elo, forma, aproveitamento no piso e H2H.
+
+    Custo sem cache: 2 buscas (1 cr cada), 2 perfis (5 cr cada) e H2H (3 cr).
+    """
+    league = "wta" if str(league).lower() == "wta" else "tennis"
+    superficie = str(surface or "").strip().lower()
+    if superficie not in {"hard", "clay", "grass", "carpet"}:
+        superficie = None
+
+    busca_a, busca_b = await asyncio.gather(
+        _request("search_players", {"name": nome_a, "league": league}),
+        _request("search_players", {"name": nome_b, "league": league}),
+    )
+    status_a, jogador_a = _escolher_jogador(busca_a.get("players"), nome_a)
+    status_b, jogador_b = _escolher_jogador(busca_b.get("players"), nome_b)
+
+    if status_a != "ok" or status_b != "ok":
+        return {
+            "status": "ambiguous" if "ambiguous" in (status_a, status_b) else "not_found",
+            "player_a": jogador_a,
+            "player_b": jogador_b,
+            "status_a": status_a,
+            "status_b": status_b,
+            "league": league,
+        }
+
+    id_a = str(jogador_a.get("player_id") or "")
+    id_b = str(jogador_b.get("player_id") or "")
+    if not id_a or not id_b or id_a == id_b:
+        return {"status": "same_player", "league": league}
+
+    perfil_a, perfil_b = await asyncio.gather(
+        _request("get_player", {"player_id": id_a, "league": league}),
+        _request("get_player", {"player_id": id_b, "league": league}),
+    )
+
+    # Ordena os IDs para evitar duas cobranças de H2H caso o mesmo par seja
+    # consultado em ordem inversa.
+    primeiro, segundo = sorted((id_a, id_b))
+    h2h = await _request(
+        "get_head_to_head",
+        {"player_id": primeiro, "opponent_id": segundo, "league": league},
+    )
+
+    rating_a = perfil_a.get("rating") or {}
+    rating_b = perfil_b.get("rating") or {}
+    elo_a = elo_b = None
+    elo_fonte = "geral"
+    amostra_a = amostra_b = None
+
+    if superficie:
+        piso_a = (rating_a.get("by_surface") or {}).get(superficie) or {}
+        piso_b = (rating_b.get("by_surface") or {}).get(superficie) or {}
+        valor_a = _numero_seguro(piso_a.get("rating"))
+        valor_b = _numero_seguro(piso_b.get("rating"))
+        amostra_a = int(piso_a.get("matches") or 0)
+        amostra_b = int(piso_b.get("matches") or 0)
+        # Nunca mistura Elo específico de um jogador com Elo geral do outro.
+        if valor_a is not None and valor_b is not None and amostra_a >= 10 and amostra_b >= 10:
+            elo_a, elo_b = valor_a, valor_b
+            elo_fonte = superficie
+
+    if elo_a is None or elo_b is None:
+        elo_a = _numero_seguro(rating_a.get("overall"))
+        elo_b = _numero_seguro(rating_b.get("overall"))
+        elo_fonte = "geral"
+
+    prob_a = probabilidade_elo(elo_a, elo_b)
+    surface_record_a = _registro_superficie(perfil_a, superficie) if superficie else {}
+    surface_record_b = _registro_superficie(perfil_b, superficie) if superficie else {}
+    id_h2h_a, id_h2h_b = id_a, id_b
+    summary = h2h.get("summary") or {}
+    h2h_wins = summary.get("wins") or {}
+    h2h_by_surface = (summary.get("by_surface") or {}).get(superficie, {}) if superficie else {}
+    h2h_surface_a = int(h2h_by_surface.get(id_a, 0) or 0)
+    h2h_surface_b = int(h2h_by_surface.get(id_b, 0) or 0)
+    h2h_count_surface = h2h_surface_a + h2h_surface_b
+
+    data_a, idade_a = _data_elo(rating_a)
+    data_b, idade_b = _data_elo(rating_b)
+
+    return {
+        "status": "ok",
+        "league": league,
+        "surface": superficie,
+        "surface_name": SUPERFICIES.get(superficie) if superficie else None,
+        "player_a": {
+            "profile": perfil_a,
+            "name": (perfil_a.get("player") or {}).get("name") or jogador_a.get("name"),
+            "id": id_a,
+            "elo": elo_a,
+            "surface_elo": _numero_seguro(((rating_a.get("by_surface") or {}).get(superficie) or {}).get("rating")) if superficie else None,
+            "surface_elo_matches": amostra_a,
+            "surface_record": surface_record_a,
+            "recent_form": _forma_recente(perfil_a),
+            "elo_date": data_a,
+            "elo_age_days": idade_a,
+        },
+        "player_b": {
+            "profile": perfil_b,
+            "name": (perfil_b.get("player") or {}).get("name") or jogador_b.get("name"),
+            "id": id_b,
+            "elo": elo_b,
+            "surface_elo": _numero_seguro(((rating_b.get("by_surface") or {}).get(superficie) or {}).get("rating")) if superficie else None,
+            "surface_elo_matches": amostra_b,
+            "surface_record": surface_record_b,
+            "recent_form": _forma_recente(perfil_b),
+            "elo_date": data_b,
+            "elo_age_days": idade_b,
+        },
+        "elo_source": elo_fonte,
+        "elo_probability_a": prob_a,
+        "elo_probability_b": (1.0 - prob_a) if prob_a is not None else None,
+        "h2h": {
+            "total": int(summary.get("matches") or 0),
+            "wins_a": int(h2h_wins.get(id_a, 0) or 0),
+            "wins_b": int(h2h_wins.get(id_b, 0) or 0),
+            "surface_wins_a": h2h_surface_a,
+            "surface_wins_b": h2h_surface_b,
+            "surface_matches": h2h_count_surface,
+        },
+    }
+
+
+def _formatar_forma(form):
+    if not form or not form.get("matches"):
+        return "sem jogos recentes registrados"
+    return (
+        f"{form['wins']}V–{form['losses']}D nos últimos {form['matches']} "
+        f"(último: {form.get('last_match') or 'data não informada'})"
+    )
+
+
+def formatar_analise_matchup(analise, reference_prob=None, selected_player=None):
+    if analise.get("status") != "ok":
+        return "Não foi possível montar a análise: jogadores não identificados de forma inequívoca."
+
+    a, b = analise["player_a"], analise["player_b"]
+    pa, pb = a["profile"], b["profile"]
+    name_a, name_b = a["name"], b["name"]
+    superficie = analise.get("surface_name") or "não identificada"
+    linhas = [
+        f"🎾 ANÁLISE PRÉ-JOGO — {name_a} x {name_b}",
+        f"Circuito: {'WTA' if analise.get('league') == 'wta' else 'ATP'} | Piso: {superficie}",
+    ]
+
+    elo_a, elo_b = a.get("elo"), b.get("elo")
+    if elo_a is not None and elo_b is not None:
+        p = analise.get("elo_probability_a")
+        fonte = "Elo por superfície" if analise.get("elo_source") != "geral" else "Elo geral"
+        linhas.extend([
+            f"{fonte}: {name_a} {elo_a:.0f} x {elo_b:.0f} {name_b}",
+            f"Probabilidade implícita Elo: {name_a} {p * 100:.1f}% | {name_b} {(1-p) * 100:.1f}%",
+        ])
+        if reference_prob is not None and selected_player:
+            p_sel = p if _normalizar_nome(selected_player) == _normalizar_nome(name_a) else 1 - p
+            diferenca = (p_sel - reference_prob) * 100
+            sinal = "+" if diferenca >= 0 else ""
+            linhas.append(
+                f"Diferença Elo x probabilidade sem vig da Pinnacle ({selected_player}): "
+                f"{sinal}{diferenca:.1f} p.p."
+            )
+    else:
+        linhas.append("Elo: dados insuficientes para comparar os dois jogadores.")
+
+    if analise.get("surface"):
+        linhas.append(f"Desempenho histórico em {superficie.lower()}:")
+        for jogador in (a, b):
+            record = jogador.get("surface_record") or {}
+            wins, losses = record.get("wins"), record.get("losses")
+            if wins is not None and losses is not None:
+                total = int(wins) + int(losses)
+                pct = float(record.get("win_pct", wins / total if total else 0)) * 100
+                linhas.append(f"• {jogador['name']}: {wins}V–{losses}D ({pct:.1f}%, {total} jogos)")
+            else:
+                linhas.append(f"• {jogador['name']}: sem registro de carreira por piso")
+
+    linhas.append("Forma — últimos jogos registrados:")
+    linhas.append(f"• {name_a}: {_formatar_forma(a.get('recent_form'))}")
+    linhas.append(f"• {name_b}: {_formatar_forma(b.get('recent_form'))}")
+
+    h2h = analise["h2h"]
+    if analise.get("surface"):
+        linhas.append(
+            f"H2H em {superficie.lower()}: {name_a} {h2h['surface_wins_a']} x "
+            f"{h2h['surface_wins_b']} {name_b} ({h2h['surface_matches']} encontros)"
+        )
+        if h2h["surface_matches"] < 3:
+            linhas.append("• Amostra pequena neste piso; não atribuir peso decisivo ao H2H.")
+    else:
+        linhas.append(
+            f"H2H geral: {name_a} {h2h['wins_a']} x {h2h['wins_b']} {name_b} "
+            f"({h2h['total']} encontros)"
+        )
+
+    avisos = []
+    for jogador in (a, b):
+        idade = jogador.get("elo_age_days")
+        if idade is not None and idade > 45:
+            avisos.append(
+                f"Elo de {jogador['name']} sem atualização por {idade} dias "
+                f"(última referência: {jogador.get('elo_date')})."
+            )
+    if avisos:
+        linhas.append("⚠️ Atualização dos dados:")
+        linhas.extend(f"• {aviso}" for aviso in avisos)
+
+    linhas.extend([
+        "",
+        "Leitura estatística exploratória. A probabilidade Elo é teórica, não calibrada.",
+        "A análise não altera o EV nem substitui a probabilidade sem vig da Pinnacle.",
+    ])
+    return "\n".join(linhas)
 
 
 def formatar_perfil(perfil):
