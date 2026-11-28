@@ -14,6 +14,7 @@ from telegram_notifier import send_alert
 from alert_history import record_alert
 from health_status import set_service
 from signal_quality import classificar_qualidade_odds
+from telegram_ui import multiplicador_bruto_contrato
 from sports_score_checker import obter_placar_mercado
 from tennis_api import AcesAPIError, analisar_matchup, formatar_analise_matchup
 from espn_sports import SportsDataError, analisar_confronto, formatar_analise as formatar_analise_sports
@@ -808,7 +809,6 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
             max_book_age_seconds=config.ODDS_MAX_BOOK_AGE_SECONDS,
         )
         placar = formatar_placar_evento(pm_market)
-        placar_texto = f"⏱️ Placar ao vivo: {placar}\n" if placar else ""
         tennis_analysis_text = ""
         if tennis_analysis and tennis_analysis.get("status") == "ok":
             tennis_analysis_text = (
@@ -821,37 +821,38 @@ async def send_arbitrage_alert(game, info, pinnacle_odds, fair_prob, ev_data, pm
         sports_analysis_text = ""
         if sports_analysis and sports_analysis.get("status") == "ok":
             sports_analysis_text = "\n\n" + formatar_analise_sports(sports_analysis) + "\n"
-        pinnacle_odd_text = (
-            f"Odd decimal (Pinnacle): {formatar_odd_decimal(pinnacle_odds)}\n"
-            if pinnacle_odds is not None else ""
+
+        odd_decimal = formatar_odd_decimal(pinnacle_odds) if pinnacle_odds is not None else "—"
+        contrato = float(ev_data["average_price"])
+        retorno_contrato = multiplicador_bruto_contrato(contrato)
+        linhas = [
+            "🎯 OPORTUNIDADE DE VALOR  ·  ODDS VALUE",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"{game.get('home_team', '')}  x  {game.get('away_team', '')}",
+            f"{pm_market.get('_sport') or pm_market.get('sport') or 'Esporte'}",
+            f"📌 {info['name']}",
+            f"Pinnacle (odd decimal): {odd_decimal}  ·  Prob. sem vig: {fair_prob * 100:.1f}%",
+            f"Polymarket: preço {contrato:.3f}"
+            + (f"  ·  retorno bruto {retorno_contrato}" if retorno_contrato else ""),
+            f"💰 EV líquido: {ev_data['net_ev_pct']:+.1f}%  ·  Stake: \${ev_data['stake_usd']:.2f}",
+            f"Lucro esperado: \${ev_data['net_profit_usd']:+.2f}",
+            "",
+            f"🧭 Execução: {qualidade['label']} ({qualidade['score']}/{qualidade['max_score']})",
+            f"Spread {ev_data.get('spread_pct', 0):.2f}%  ·  Slippage {ev_data.get('slippage_pct', 0):.2f}%",
+            f"Taxas \${ev_data.get('fee_usd', 0):.2f}  ·  Profundidade \${ev_data.get('top_ask_depth_usd', 0):,.0f}",
+        ]
+        if placar:
+            linhas.insert(4, f"⏱️ {placar}")
+        message = "\n".join(linhas)
+        if tennis_analysis_text:
+            message += tennis_analysis_text
+        if sports_analysis_text:
+            message += sports_analysis_text
+        message += (
+            "\n\nℹ️ Odd Pinnacle é decimal. O multiplicador Polymarket é retorno bruto "
+            "do contrato se vencer, antes das taxas. EV não garante execução nem lucro."
         )
-        message = (
-            "🚨 OPORTUNIDADE DE VALOR\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            f"🏟️ {game.get('home_team', '')}  x  {game.get('away_team', '')}\n"
-            f"🏆 {pm_market.get('_sport') or pm_market.get('sport') or 'Esporte'}\n"
-            f"{placar_texto}"
-            "\n📌 SELEÇÃO ANALISADA\n"
-            f"{info['name']}\n"
-            f"Probabilidade sem vig: {fair_prob * 100:.1f}%\n"
-            f"{pinnacle_odd_text}"
-            f"Preço médio do contrato: {ev_data['average_price']:.3f}\n"
-            "\n💰 VALOR ESTIMADO\n"
-            f"Stake analisada: ${ev_data['stake_usd']:.2f}\n"
-            f"EV líquido: {ev_data['net_ev_pct']:+.1f}%\n"
-            f"Lucro esperado: ${ev_data['net_profit_usd']:+.2f}\n"
-            "\n🧭 QUALIDADE DA EXECUÇÃO\n"
-            f"Condição do livro: {qualidade['label']} ({qualidade['score']}/{qualidade['max_score']})\n"
-            f"Spread: {ev_data.get('spread_pct', 0):.2f}%  •  Slippage: {ev_data.get('slippage_pct', 0):.2f}%\n"
-            f"Taxa estimada: ${ev_data.get('fee_usd', 0):.2f}\n"
-            f"Profundidade no melhor ask: ${ev_data.get('top_ask_depth_usd', 0):,.0f}\n"
-            f"Idade do livro: {ev_data.get('book_age_seconds', 0):.0f}s\n"
-            f"{tennis_analysis_text}"
-            f"{sports_analysis_text}"
-            "\n⚠️ Estimativa baseada nos preços e na liquidez observados. "
-            "Não garante execução nem lucro."
-        )
-        enviado = await send_alert(message, button_url=link)
+        enviado = await send_alert(message, button_url=link, button_label="Ver mercado ↗")
         if enviado:
             record_alert(
                 "odds_value", "EV líquido", pm_market, token_id=token_id,
