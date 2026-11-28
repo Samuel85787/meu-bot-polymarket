@@ -142,5 +142,60 @@ class AlertHistoryTests(unittest.TestCase):
         self.assertEqual(metrics["by_sport"][0]["sport"], "Não identificado")
 
 
+    def test_recent_summary_and_sport_ranking_use_resolved_simulated_results(self):
+        market = {"id": "period-nba", "_sport": "NBA"}
+        for index, won, pnl, roi in [
+            (1, 1, 98.0, 98.0),
+            (2, 1, 48.0, 48.0),
+            (3, 0, -100.0, -100.0),
+        ]:
+            token = f"nba-{index}"
+            alert_history.record_alert(
+                "odds_value", "EV líquido", market, token_id=token,
+                entry_price=0.5, reference_prob=0.6, ev_pct=8,
+                stake_usd=100,
+            )
+            with alert_history._connection() as db:
+                db.execute(
+                    "UPDATE alerts SET won = ?, resolved_at = ?, pnl_usd = ?, roi_pct = ? "
+                    "WHERE token_id = ?",
+                    (won, 200, pnl, roi, token),
+                )
+
+        alert_history.record_alert("whale", "BUY", market)
+        alert_history.record_alert("price_spike", "SPIKE_UP", market)
+
+        summary = alert_history.get_period_metrics(24)
+        self.assertEqual(summary["total"], 5)
+        self.assertEqual(summary["whale_alerts"], 1)
+        self.assertEqual(summary["spike_alerts"], 1)
+        self.assertEqual(summary["odds_alerts"], 3)
+        self.assertEqual(summary["odds_wins"], 2)
+        self.assertEqual(summary["odds_losses"], 1)
+        self.assertEqual(summary["pnl_samples"], 3)
+        self.assertAlmostEqual(summary["simulated_pnl_usd"], 46.0)
+
+        ranking = alert_history.get_sport_ranking(30, min_samples=3)
+        self.assertEqual(len(ranking), 1)
+        self.assertEqual(ranking[0]["sport"], "NBA")
+        self.assertEqual(ranking[0]["samples"], 3)
+        self.assertAlmostEqual(ranking[0]["win_rate"], 200 / 3)
+
+    def test_sport_ranking_excludes_small_samples(self):
+        market = {"id": "few-samples", "_sport": "NFL"}
+        for index in range(2):
+            token = f"nfl-{index}"
+            alert_history.record_alert(
+                "odds_value", "EV líquido", market, token_id=token,
+                entry_price=0.5, reference_prob=0.6, ev_pct=8, stake_usd=100,
+            )
+            with alert_history._connection() as db:
+                db.execute(
+                    "UPDATE alerts SET won = 1, resolved_at = 200, pnl_usd = 10, roi_pct = 10 "
+                    "WHERE token_id = ?", (token,)
+                )
+        self.assertEqual(alert_history.get_sport_ranking(30, min_samples=3), [])
+
+
 if __name__ == "__main__":
     unittest.main()
