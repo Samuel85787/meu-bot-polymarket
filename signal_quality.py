@@ -80,7 +80,7 @@ def classificar_qualidade_odds(ev_data, minimum_edge_pct, max_spread_pct,
     max_age = max(1.0, _numero(max_book_age_seconds, 1.0))
 
     if min(ev, spread, slippage, depth, age) < 0:
-        return {"label": "Dados insuficientes", "score": 0, "max_score": 8}
+        return {"label": "Dados insuficientes", "score": 0, "max_score": 7}
 
     score = 0
     if ev >= minimum_edge * 2:
