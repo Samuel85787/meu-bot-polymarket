@@ -207,6 +207,16 @@ class OddsMatchingTests(unittest.TestCase):
         self.assertAlmostEqual(fair["b"]["fair_prob"], 0.5)
 
 
+class OddsLiveContextTests(unittest.TestCase):
+    def test_live_score_uses_only_available_score_feed_data(self):
+        live = {"score": "20-14", "period": "Q2", "elapsed": "04:12"}
+        with patch.object(odds_checker, "obter_placar_mercado", return_value=live):
+            self.assertEqual(
+                odds_checker.formatar_placar_evento({"gameId": "game-1"}),
+                "20-14 | Q2 | 04:12",
+            )
+        with patch.object(odds_checker, "obter_placar_mercado", return_value=None):
+            self.assertIsNone(odds_checker.formatar_placar_evento({"gameId": "game-2"}))
 class OddsQuotaTests(unittest.TestCase):
     def tearDown(self):
         odds_checker._quota_used = None
